@@ -337,7 +337,7 @@
             }
             auditStatusEl.textContent = '監査ログ取得中...';
             try {
-                const res = await fetch(`${base}/api/audit/logs?limit=240&include_deleted=1`, {
+                const res = await fetch(`${base}/api/audit/logs?limit=500&include_deleted=1`, {
                     headers: {
                         'x-admin-token': token,
                         'x-admin-page': 'admin'

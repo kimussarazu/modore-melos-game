@@ -45,7 +45,8 @@ function isAllowedAdminPage(req, env) {
     env.ADMIN_REFERER_PREFIX || 'https://kimussarazu.github.io/modore-melos-game/admin.html'
   );
   if (adminPageHeader !== 'admin') return false;
-  if (!origin || origin !== allowedOrigin) return false;
+  // Some browsers omit Origin on same-origin GET; allow empty Origin.
+  if (origin && origin !== allowedOrigin) return false;
   if (!referer || !referer.startsWith(allowedRefererPrefix)) return false;
   return true;
 }
