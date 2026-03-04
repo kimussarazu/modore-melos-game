@@ -1397,24 +1397,22 @@
         });
         backToTitleFromGameOver.addEventListener('click', returnToTitle);
         backToTitleFromWin.addEventListener('click', returnToTitle);
-        if (characterButton && characterPanel) {
-            characterButton.addEventListener('click', () => {
-                const shown = characterPanel.style.display === 'block';
-                characterPanel.style.display = shown ? 'none' : 'block';
-                if (!shown) updateCharacterButtons();
+        characterButton.addEventListener('click', () => {
+            const shown = characterPanel.style.display === 'block';
+            characterPanel.style.display = shown ? 'none' : 'block';
+            if (!shown) updateCharacterButtons();
+        });
+        characterOptionButtons.forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const next = btn.dataset.char || 'vo';
+                if (!CHARACTERS[next]) return;
+                selectedCharacter = next;
+                localStorage.setItem(CHARACTER_STORAGE_KEY, selectedCharacter);
+                updateCharacterButtons();
+                characterPanel.style.display = 'none';
+                drawPixelArtTitle();
             });
-            characterOptionButtons.forEach((btn) => {
-                btn.addEventListener('click', () => {
-                    const next = btn.dataset.char || 'vo';
-                    if (!CHARACTERS[next]) return;
-                    selectedCharacter = next;
-                    localStorage.setItem(CHARACTER_STORAGE_KEY, selectedCharacter);
-                    updateCharacterButtons();
-                    characterPanel.style.display = 'none';
-                    drawPixelArtTitle();
-                });
-            });
-        }
+        });
         chatSendButton.addEventListener('click', sendChatMessage);
         chatMessages.addEventListener('click', (e) => {
             const target = e.target;
@@ -2383,13 +2381,8 @@
             winScreen.style.display = 'flex';
         }
 
-        // 初期表示を強制復元（ブラウザ履歴復帰時の黒画面対策）
-        returnToTitle();
-        window.addEventListener('pageshow', () => {
-            if (!gameRunning && gameOverScreen.style.display !== 'flex' && winScreen.style.display !== 'flex') {
-                returnToTitle();
-            }
-        });
+        // Draw pixel art on start screen
+        drawPixelArtTitle();
         initRealtimeChat();
     </script>
 </body>
