@@ -80,9 +80,10 @@
         <h1>掲示板 管理画面</h1>
         <div class="row">
             <input id="secretInput" placeholder="管理者のNostr秘密鍵（hex）">
-            <button id="connectBtn">接続</button>
+            <button id="connectBtn">管理者として接続</button>
             <button id="refreshBtn" class="secondary">再読み込み</button>
         </div>
+        <div style="font-size:0.9rem; color:#d2d2d2; margin-top:6px;">※ 「管理者として接続」は、秘密鍵で管理者認証して削除・手紙更新を有効化します。</div>
         <div id="status">未接続</div>
     </div>
 
@@ -117,6 +118,7 @@
         const NOSTR_MOD_D = 'melos-moderation-v1';
         const NOSTR_LETTER_D = 'melos-creator-letter-v1';
         const BOARD_RESET_TS = Date.parse('2026-03-04T09:08:00Z');
+        const RELAY_TIMEOUT_MS = 4200;
 
         const secretInput = document.getElementById('secretInput');
         const connectBtn = document.getElementById('connectBtn');
@@ -168,6 +170,27 @@
                 out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
             }
             return out;
+        }
+
+        function withTimeout(promise, timeoutMs, fallbackValue) {
+            return Promise.race([
+                promise,
+                new Promise((resolve) => setTimeout(() => resolve(fallbackValue), timeoutMs))
+            ]);
+        }
+
+        async function listFromRelay(relay, filters, timeoutMs = RELAY_TIMEOUT_MS) {
+            if (!state.pool) return [];
+            try {
+                const result = await withTimeout(
+                    state.pool.list([relay], filters),
+                    timeoutMs,
+                    []
+                );
+                return Array.isArray(result) ? result : [];
+            } catch {
+                return [];
+            }
         }
 
         function renderComments() {
@@ -271,34 +294,46 @@
 
         async function loadBoardData() {
             if (!state.pool) return;
-            statusEl.textContent = '読み込み中...';
+            statusEl.textContent = '読み込み中...（高速モード）';
             try {
                 state.messages.clear();
                 state.selected.clear();
                 state.removedEventIds.clear();
                 state.adminDeletedIds.clear();
                 state.letterTs = 0;
-                const boardEvents = await state.pool.list(NOSTR_RELAYS, [{
+                renderComments();
+
+                const boardFilters = [{
                     kinds: [1, 5],
                     '#t': [NOSTR_ROOM_TAG],
-                    limit: 280
-                }]);
-                boardEvents.forEach(ingestEvent);
+                    limit: 120
+                }];
+                const metaFiltersPrimary = [{
+                    kinds: [30078],
+                    '#d': [NOSTR_MOD_D, NOSTR_LETTER_D],
+                    limit: 60
+                }];
+                const metaFiltersFallback = [{
+                    kinds: [30078],
+                    limit: 80
+                }];
 
-                // Some relays reject #d filter queries; fallback to broad fetch for reliability.
-                let metaEvents = [];
-                try {
-                    metaEvents = await state.pool.list(NOSTR_RELAYS, [{
-                        kinds: [30078],
-                        '#d': [NOSTR_MOD_D, NOSTR_LETTER_D],
-                        limit: 120
-                    }]);
-                } catch {
-                    metaEvents = await state.pool.list(NOSTR_RELAYS, [{
-                        kinds: [30078],
-                        limit: 160
-                    }]);
-                }
+                const boardResults = await Promise.all(
+                    NOSTR_RELAYS.map((relay) => listFromRelay(relay, boardFilters, RELAY_TIMEOUT_MS))
+                );
+                boardResults.flat().forEach(ingestEvent);
+                renderComments();
+                statusEl.textContent = `コメント読み込み中...（${state.messages.size}件）`;
+
+                const metaResultsPrimary = await Promise.all(
+                    NOSTR_RELAYS.map((relay) => listFromRelay(relay, metaFiltersPrimary, Math.floor(RELAY_TIMEOUT_MS * 0.85)))
+                );
+                const primaryCount = metaResultsPrimary.reduce((n, arr) => n + arr.length, 0);
+                const metaEvents = primaryCount > 0
+                    ? metaResultsPrimary.flat()
+                    : (await Promise.all(
+                        NOSTR_RELAYS.map((relay) => listFromRelay(relay, metaFiltersFallback, Math.floor(RELAY_TIMEOUT_MS * 0.85)))
+                    )).flat();
                 metaEvents.forEach(ingestEvent);
                 renderComments();
                 statusEl.textContent = `読み込み完了（${state.messages.size}件）`;
@@ -357,37 +392,12 @@
             });
             if (!ok) return;
             statusEl.textContent = safeText ? '手紙を更新しました' : '手紙を削除しました';
-            verifyLetterReflection(safeText);
-        }
-
-        async function verifyLetterReflection(expectedText) {
-            if (!state.pool || !state.pubkey) return;
-            try {
-                const events = await state.pool.list(NOSTR_RELAYS, [{
-                    kinds: [30078],
-                    authors: [state.pubkey],
-                    '#d': [NOSTR_LETTER_D],
-                    limit: 3
-                }]);
-                const latest = events
-                    .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0];
-                if (!latest) {
-                    letterStatusEl.textContent = '手紙状態: 未確認';
-                    return;
-                }
-                let payload = null;
-                try {
-                    payload = JSON.parse(latest.content || '{}');
-                } catch {
-                    payload = null;
-                }
-                const text = payload && typeof payload.text === 'string' ? payload.text.slice(0, 220) : '';
-                letterStatusEl.textContent = text === expectedText
-                    ? '手紙状態: 反映済み'
-                    : '手紙状態: relay反映待ち';
-            } catch {
-                letterStatusEl.textContent = '手紙状態: 確認失敗';
-            }
+            setTimeout(() => {
+                loadBoardData();
+            }, 1200);
+            setTimeout(() => {
+                loadBoardData();
+            }, 2600);
         }
 
         connectBtn.addEventListener('click', async () => {
