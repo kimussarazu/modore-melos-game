@@ -36,6 +36,15 @@ wrangler secret put IP_SALT
 - `ADMIN_TOKEN`: 管理画面から監査ログを読むためのトークン
 - `IP_SALT`: IP ハッシュ化用ソルト
 
+## 4.5) 管理画面URL制限（既定で設定済み）
+
+`wrangler.toml` の `vars` で、監査ログ取得APIにアクセスできるURLを制限しています。
+
+- `ADMIN_ORIGIN`: `https://kimussarazu.github.io`
+- `ADMIN_REFERER_PREFIX`: `https://kimussarazu.github.io/modore-melos-game/admin.html`
+
+この2つに一致しないアクセスは、トークンがあっても `401` を返します。
+
 ## 5) デプロイ
 
 ```bash

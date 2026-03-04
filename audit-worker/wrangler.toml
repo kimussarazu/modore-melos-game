@@ -1,8 +1,9 @@
 name = "melos-audit-worker"
 main = "src/index.js"
 compatibility_date = "2026-03-04"
+vars = { ADMIN_ORIGIN = "https://kimussarazu.github.io", ADMIN_REFERER_PREFIX = "https://kimussarazu.github.io/modore-melos-game/admin.html" }
 
 [[d1_databases]]
 binding = "DB"
 database_name = "melos_audit"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "e321e40e-f581-461d-bebc-885b41f49436"

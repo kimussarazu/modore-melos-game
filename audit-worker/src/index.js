@@ -36,6 +36,18 @@ function isAdmin(req, env) {
   return !!env.ADMIN_TOKEN && token === env.ADMIN_TOKEN;
 }
 
+function isAllowedAdminPage(req, env) {
+  const origin = req.headers.get('origin') || '';
+  const referer = req.headers.get('referer') || '';
+  const allowedOrigin = String(env.ADMIN_ORIGIN || 'https://kimussarazu.github.io');
+  const allowedRefererPrefix = String(
+    env.ADMIN_REFERER_PREFIX || 'https://kimussarazu.github.io/modore-melos-game/admin.html'
+  );
+  if (!origin || origin !== allowedOrigin) return false;
+  if (!referer || !referer.startsWith(allowedRefererPrefix)) return false;
+  return true;
+}
+
 function toSafeText(v, max = 220) {
   return String(v || '').slice(0, max);
 }
@@ -107,7 +119,7 @@ export default {
     }
 
     if (url.pathname === '/api/audit/logs' && request.method === 'GET') {
-      if (!isAdmin(request, env)) {
+      if (!isAdmin(request, env) || !isAllowedAdminPage(request, env)) {
         return json({ ok: false, error: 'unauthorized' }, 401);
       }
       const limitRaw = Number(url.searchParams.get('limit') || 120);
@@ -124,7 +136,7 @@ export default {
     }
 
     if (url.pathname === '/api/audit/mark-deleted' && request.method === 'POST') {
-      if (!isAdmin(request, env)) {
+      if (!isAdmin(request, env) || !isAllowedAdminPage(request, env)) {
         return json({ ok: false, error: 'unauthorized' }, 401);
       }
       let body = null;
