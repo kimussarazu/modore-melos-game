@@ -252,6 +252,15 @@
             background: #2f5ea8;
         }
 
+        #chatRefreshButton {
+            font-size: 0.58em;
+            padding: 8px 10px;
+            margin: 0;
+            border-width: 2px;
+            box-shadow: 2px 2px 0 #000;
+            background: #4b4b4b;
+        }
+
         #difficultySelector {
             display: flex;
             align-items: center;
@@ -364,6 +373,7 @@
                     <input id="chatNameInput" class="chatInput" maxlength="12" placeholder="名前">
                     <input id="chatInput" class="chatInput" maxlength="80" placeholder="メッセージ（80字まで）">
                     <button id="chatSendButton">送信</button>
+                    <button id="chatRefreshButton">更新</button>
                 </div>
             </div>
             <button id="startButton">スタート</button>
@@ -412,6 +422,7 @@
         const chatNameInput = document.getElementById('chatNameInput');
         const chatInput = document.getElementById('chatInput');
         const chatSendButton = document.getElementById('chatSendButton');
+        const chatRefreshButton = document.getElementById('chatRefreshButton');
 
         // Pixel art rendering
         ctx.imageSmoothingEnabled = false;
@@ -423,7 +434,10 @@
             const height = Math.max(500, Math.floor(gameContainer.clientHeight));
             canvas.width = width;
             canvas.height = height;
-            BASE_GROUND_Y = canvas.height - 120;
+            const isPortrait = height > width * 1.05;
+            BASE_GROUND_Y = isPortrait
+                ? Math.floor(canvas.height * 0.64)
+                : (canvas.height - 120);
             player.x = Math.floor(canvas.width * 0.67);
             player.y = Math.min(player.y, BASE_GROUND_Y - player.height);
             ctx.imageSmoothingEnabled = false;
@@ -516,7 +530,8 @@
             messages: new Map(),
             maxMessages: 80,
             selfId: '',
-            lastEnterAt: 0
+            lastEnterAt: 0,
+            pollingTimer: null
         };
 
         // Player - Red Melos
@@ -860,6 +875,29 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
+        function ingestChatRecord(data, key) {
+            if (!data) return;
+            if (data.deleted) {
+                chatState.messages.delete(key);
+                renderChatMessages();
+                return;
+            }
+            if (!data.text || typeof data.text !== 'string') return;
+            chatState.messages.set(key, { ...data, key });
+            if (chatState.messages.size > chatState.maxMessages) {
+                const oldestKey = chatState.messages.keys().next().value;
+                chatState.messages.delete(oldestKey);
+            }
+            renderChatMessages();
+        }
+
+        function refreshChatMessages() {
+            if (!chatState.room) return;
+            chatState.room.map().once((data, key) => {
+                ingestChatRecord(data, key);
+            });
+        }
+
         function initRealtimeChat() {
             if (chatState.initialized) return;
             chatState.initialized = true;
@@ -883,25 +921,20 @@
                     peers: [
                         'https://gun.eco/gun',
                         'https://gunjs.herokuapp.com/gun',
-                        'https://gun-vue.herokuapp.com/gun'
+                        'https://gun-vue.herokuapp.com/gun',
+                        'https://peer.wallie.io/gun'
                     ]
                 });
                 chatState.room = chatState.gun.get('return-melos-board-v1').get('lobby');
                 chatState.room.map().on((data, key) => {
-                    if (!data) return;
-                    if (data.deleted) {
-                        chatState.messages.delete(key);
-                        renderChatMessages();
-                        return;
-                    }
-                    if (!data.text || typeof data.text !== 'string') return;
-                    chatState.messages.set(key, { ...data, key });
-                    if (chatState.messages.size > chatState.maxMessages) {
-                        const oldestKey = chatState.messages.keys().next().value;
-                        chatState.messages.delete(oldestKey);
-                    }
-                    renderChatMessages();
+                    ingestChatRecord(data, key);
                 });
+                refreshChatMessages();
+                if (chatState.pollingTimer) {
+                    clearInterval(chatState.pollingTimer);
+                }
+                // 中継の取りこぼし対策: 定期的に最新状態を再取得
+                chatState.pollingTimer = setInterval(refreshChatMessages, 6000);
                 chatStatus.textContent = '掲示板オンライン: リアルタイム同期中';
             } catch (error) {
                 console.warn('Chat initialization failed:', error);
@@ -967,6 +1000,10 @@
         backToTitleFromGameOver.addEventListener('click', returnToTitle);
         backToTitleFromWin.addEventListener('click', returnToTitle);
         chatSendButton.addEventListener('click', sendChatMessage);
+        chatRefreshButton.addEventListener('click', () => {
+            refreshChatMessages();
+            chatStatus.textContent = '掲示板を更新しました';
+        });
         chatMessages.addEventListener('click', (e) => {
             const target = e.target;
             if (!(target instanceof HTMLElement)) return;
