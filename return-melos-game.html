@@ -78,6 +78,7 @@
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
             padding: 16px 10px 20px;
+            position: relative;
         }
 
         #gameOverScreen, #winScreen {
@@ -311,6 +312,61 @@
             background: #4b4b4b;
         }
 
+        #characterButton {
+            position: absolute;
+            top: 58px;
+            right: 12px;
+            z-index: 11;
+            font-size: 0.56em;
+            padding: 8px 10px;
+            margin: 0;
+            border-width: 2px;
+            box-shadow: 2px 2px 0 #000;
+            background: #6a3cc4;
+        }
+
+        #characterPanel {
+            position: absolute;
+            top: 96px;
+            right: 12px;
+            z-index: 11;
+            width: 168px;
+            background: rgba(12, 12, 22, 0.94);
+            border: 3px solid #4b4b7a;
+            box-shadow: 4px 4px 0 #000;
+            padding: 8px;
+            display: none;
+        }
+
+        #characterPanelTitle {
+            color: #ffd700;
+            font-size: 0.56em;
+            margin-bottom: 6px;
+        }
+
+        .characterOptionBtn {
+            width: 100%;
+            margin: 4px 0;
+            font-size: 0.52em;
+            padding: 7px 6px;
+            border-width: 2px;
+            box-shadow: 2px 2px 0 #000;
+            background: #343454;
+            text-align: left;
+        }
+
+        .characterOptionBtn.active {
+            background: #e1452d;
+        }
+
+        #backToTitleFromGameOver {
+            background: #4b4b4b;
+        }
+
+        #backToTitleFromGameOver:hover {
+            background: #5d5d5d;
+        }
+
         #difficultySelector {
             display: flex;
             align-items: center;
@@ -406,6 +462,14 @@
                 font-size: 0.55em;
                 padding: 8px 10px;
             }
+            #characterButton {
+                top: 52px;
+                font-size: 0.5em;
+            }
+            #characterPanel {
+                top: 88px;
+                width: 158px;
+            }
         }
     </style>
 </head>
@@ -431,6 +495,7 @@
                 <button id="normalButton" class="difficultyBtn active">NORMAL</button>
                 <button id="hardButton" class="difficultyBtn">HARD</button>
             </div>
+            <button id="startButton">スタート</button>
             <div id="chatBoard">
                 <div id="chatTitle">歴代メロスの掲示板</div>
                 <div id="chatStatus">接続準備中...</div>
@@ -450,7 +515,14 @@
                     </div>
                 </div>
             </div>
-            <button id="startButton">スタート</button>
+            <button id="characterButton">キャラチェンジ</button>
+            <div id="characterPanel">
+                <div id="characterPanelTitle">キャラをえらぶ</div>
+                <button class="characterOptionBtn" data-char="vo">Vo.Gt 石田 想太朗</button>
+                <button class="characterOptionBtn" data-char="key">Key. 小川 誠太</button>
+                <button class="characterOptionBtn" data-char="ba">Ba. 木村 優太</button>
+                <button class="characterOptionBtn" data-char="dr">Dr. ぐら</button>
+            </div>
         </div>
 
         <div id="gameOverScreen">
@@ -498,6 +570,9 @@
         const chatSendButton = document.getElementById('chatSendButton');
         const chatRefreshButton = document.getElementById('chatRefreshButton');
         const creatorLetterBody = document.getElementById('creatorLetterBody');
+        const characterButton = document.getElementById('characterButton');
+        const characterPanel = document.getElementById('characterPanel');
+        const characterOptionButtons = Array.from(document.querySelectorAll('.characterOptionBtn'));
 
         // Pixel art rendering
         ctx.imageSmoothingEnabled = false;
@@ -537,6 +612,15 @@
         let kingSpawned = false;
         let selectedDifficulty = 'normal';
         let currentDifficulty = null;
+        const CHARACTER_STORAGE_KEY = 'melos_character_id';
+        const CHARACTERS = {
+            vo: { label: 'Vo.Gt 石田 想太朗', bodyColor: '#d07b3d', skinColor: '#f3c8a7', hairColor: '#171717', accentColor: '#222', accessory: 'mic' },
+            key: { label: 'Key. 小川 誠太', bodyColor: '#d98fb0', skinColor: '#f1c4a4', hairColor: '#1b1b1b', accentColor: '#2f64c5', accessory: 'sword' },
+            ba: { label: 'Ba. 木村 優太', bodyColor: '#b7aa5f', skinColor: '#eec3a1', hairColor: '#4a2f18', accentColor: '#8b5f2d', accessory: 'bass' },
+            dr: { label: 'Dr. ぐら', bodyColor: '#d67757', skinColor: '#f2c5a8', hairColor: '#101015', accentColor: '#3f84c6', accessory: 'stick' }
+        };
+        let selectedCharacter = localStorage.getItem(CHARACTER_STORAGE_KEY) || 'vo';
+        if (!CHARACTERS[selectedCharacter]) selectedCharacter = 'vo';
         const LOW_SPEC_MODE = window.matchMedia('(max-width: 900px)').matches;
         const PERF = {
             terrainStep: LOW_SPEC_MODE ? 12 : 8,
@@ -756,13 +840,18 @@
 
         function drawPixelMelos(x, y, scale) {
             const s = scale;
+            const ch = CHARACTERS[selectedCharacter] || CHARACTERS.vo;
             // Body
-            pixelCtx.fillStyle = '#e1452d';
+            pixelCtx.fillStyle = ch.bodyColor;
             pixelCtx.fillRect(x, y, 6*s, 10*s);
             
             // Head
-            pixelCtx.fillStyle = '#ffdbac';
+            pixelCtx.fillStyle = ch.skinColor;
             pixelCtx.fillRect(x+s, y-4*s, 4*s, 4*s);
+
+            // Hair
+            pixelCtx.fillStyle = ch.hairColor;
+            pixelCtx.fillRect(x+s, y-4*s, 4*s, s);
             
             // Eyes
             pixelCtx.fillStyle = '#000';
@@ -770,9 +859,23 @@
             pixelCtx.fillRect(x+4*s, y-3*s, s, s);
             
             // Legs (running pose)
-            pixelCtx.fillStyle = '#e1452d';
+            pixelCtx.fillStyle = ch.bodyColor;
             pixelCtx.fillRect(x+s, y+10*s, 2*s, 4*s);
             pixelCtx.fillRect(x+4*s, y+12*s, 2*s, 2*s);
+
+            if (ch.accessory === 'sword') {
+                pixelCtx.fillStyle = '#79e8c8';
+                pixelCtx.fillRect(x+6*s, y+2*s, s, 8*s);
+            } else if (ch.accessory === 'bass') {
+                pixelCtx.fillStyle = '#7f4f2d';
+                pixelCtx.fillRect(x-2*s, y+4*s, 2*s, 5*s);
+            } else if (ch.accessory === 'stick') {
+                pixelCtx.fillStyle = '#d7b274';
+                pixelCtx.fillRect(x+6*s, y+4*s, 2*s, s);
+            } else {
+                pixelCtx.fillStyle = '#ddd';
+                pixelCtx.fillRect(x+6*s, y+4*s, 2*s, s);
+            }
         }
 
         // Input handling
@@ -817,6 +920,10 @@
         window.addEventListener('keydown', (e) => {
             if (e.code !== 'Space') return;
             e.preventDefault();
+            if (gameOverScreen.style.display === 'flex') {
+                if (!e.repeat) restartButton.click();
+                return;
+            }
             if (!jumpHeld && !e.repeat) {
                 requestJump();
             }
@@ -1272,6 +1379,12 @@
             hardButton.classList.toggle('active', level === 'hard');
         }
 
+        function updateCharacterButtons() {
+            characterOptionButtons.forEach((btn) => {
+                btn.classList.toggle('active', btn.dataset.char === selectedCharacter);
+            });
+        }
+
         // Start game
         startButton.addEventListener('click', startGame);
         restartButton.addEventListener('click', () => {
@@ -1284,6 +1397,22 @@
         });
         backToTitleFromGameOver.addEventListener('click', returnToTitle);
         backToTitleFromWin.addEventListener('click', returnToTitle);
+        characterButton.addEventListener('click', () => {
+            const shown = characterPanel.style.display === 'block';
+            characterPanel.style.display = shown ? 'none' : 'block';
+            if (!shown) updateCharacterButtons();
+        });
+        characterOptionButtons.forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const next = btn.dataset.char || 'vo';
+                if (!CHARACTERS[next]) return;
+                selectedCharacter = next;
+                localStorage.setItem(CHARACTER_STORAGE_KEY, selectedCharacter);
+                updateCharacterButtons();
+                characterPanel.style.display = 'none';
+                drawPixelArtTitle();
+            });
+        });
         chatSendButton.addEventListener('click', sendChatMessage);
         chatMessages.addEventListener('click', (e) => {
             const target = e.target;
@@ -1316,6 +1445,7 @@
             await prepareAudio();
             toggleMute();
         });
+        updateCharacterButtons();
         renderCreatorLetter();
 
         async function prepareAudio() {
@@ -1877,13 +2007,18 @@
         }
 
         function drawMelos(x, y) {
+            const ch = CHARACTERS[selectedCharacter] || CHARACTERS.vo;
             // Body
-            ctx.fillStyle = '#e1452d';
+            ctx.fillStyle = ch.bodyColor;
             ctx.fillRect(x + 8, y + 12, 16, 20);
             
             // Head
-            ctx.fillStyle = '#ffdbac';
+            ctx.fillStyle = ch.skinColor;
             ctx.fillRect(x + 10, y, 12, 12);
+
+            // Hair
+            ctx.fillStyle = ch.hairColor;
+            ctx.fillRect(x + 10, y, 12, 4);
             
             // Eyes
             ctx.fillStyle = '#000';
@@ -1892,15 +2027,31 @@
             
             // Arms (running motion)
             const armSwing = Math.sin(frameCount * 0.2) * 4;
-            ctx.fillStyle = '#e1452d';
+            ctx.fillStyle = ch.bodyColor;
             ctx.fillRect(x + 4, y + 16 + armSwing, 4, 12);
             ctx.fillRect(x + 24, y + 16 - armSwing, 4, 12);
             
             // Legs (running motion)
             const legSwing = Math.sin(frameCount * 0.3) * 6;
-            ctx.fillStyle = '#e1452d';
+            ctx.fillStyle = ch.bodyColor;
             ctx.fillRect(x + 10, y + 32, 4, 8 + Math.abs(legSwing));
             ctx.fillRect(x + 18, y + 32, 4, 8 + Math.abs(-legSwing));
+
+            ctx.fillStyle = ch.accentColor;
+            if (ch.accessory === 'sword') {
+                ctx.fillRect(x + 24, y + 18, 4, 16);
+                ctx.fillStyle = '#7ce8cc';
+                ctx.fillRect(x + 24, y + 10, 4, 8);
+            } else if (ch.accessory === 'bass') {
+                ctx.fillRect(x + 2, y + 18, 6, 10);
+                ctx.fillRect(x + 0, y + 22, 2, 8);
+            } else if (ch.accessory === 'stick') {
+                ctx.fillStyle = '#d6b06c';
+                ctx.fillRect(x + 24, y + 20, 8, 2);
+            } else {
+                ctx.fillStyle = '#ddd';
+                ctx.fillRect(x + 22, y + 18, 5, 2);
+            }
         }
 
         function drawHome(x, y) {
