@@ -117,7 +117,6 @@
         const NOSTR_ROOM_TAG = 'modore-melos-board-v1';
         const NOSTR_MOD_D = 'melos-moderation-v1';
         const NOSTR_LETTER_D = 'melos-creator-letter-v1';
-        const BOARD_RESET_TS = Date.parse('2026-03-04T09:08:00Z');
         const RELAY_TIMEOUT_MS = 4200;
 
         const secretInput = document.getElementById('secretInput');
@@ -231,7 +230,6 @@
             if (!event || !event.id) return;
             if (event.kind === 1) {
                 const eventTs = (event.created_at || Math.floor(Date.now() / 1000)) * 1000;
-                if (eventTs < BOARD_RESET_TS) return;
                 let payload;
                 try {
                     payload = JSON.parse(event.content || '{}');
@@ -324,6 +322,21 @@
                 boardResults.flat().forEach(ingestEvent);
                 renderComments();
                 statusEl.textContent = `コメント読み込み中...（${state.messages.size}件）`;
+
+                // Fallback for relays that are slow or return sparse history per endpoint.
+                if (state.messages.size < 8) {
+                    const broadBoard = await withTimeout(
+                        state.pool.list(NOSTR_RELAYS, [{
+                            kinds: [1, 5],
+                            '#t': [NOSTR_ROOM_TAG],
+                            limit: 320
+                        }]),
+                        RELAY_TIMEOUT_MS + 1800,
+                        []
+                    );
+                    (Array.isArray(broadBoard) ? broadBoard : []).forEach(ingestEvent);
+                    renderComments();
+                }
 
                 const metaResultsPrimary = await Promise.all(
                     NOSTR_RELAYS.map((relay) => listFromRelay(relay, metaFiltersPrimary, Math.floor(RELAY_TIMEOUT_MS * 0.85)))
