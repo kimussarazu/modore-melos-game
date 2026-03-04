@@ -558,38 +558,38 @@
         const DIFFICULTIES = {
             easy: {
                 label: 'EASY',
-                startSpeed: 3.5,
-                obstacleSpawnInterval: 100,
-                archerFireInterval: 120,
-                projectileSpeedBonus: 2.2,
-                speedRampInterval: 750,
-                maxSpeed: 7.2
+                startSpeed: 3.1,
+                obstacleSpawnInterval: 116,
+                archerFireInterval: 136,
+                projectileSpeedBonus: 1.7,
+                speedRampInterval: 840,
+                maxSpeed: 6.4
             },
             normal: {
                 label: 'NORMAL',
-                startSpeed: 4,
-                obstacleSpawnInterval: 80,
-                archerFireInterval: 90,
-                projectileSpeedBonus: 3,
-                speedRampInterval: 600,
-                maxSpeed: 8
+                startSpeed: 3.55,
+                obstacleSpawnInterval: 96,
+                archerFireInterval: 108,
+                projectileSpeedBonus: 2.35,
+                speedRampInterval: 700,
+                maxSpeed: 7.15
             },
             hard: {
                 label: 'HARD',
-                startSpeed: 4.6,
-                obstacleSpawnInterval: 65,
-                archerFireInterval: 70,
-                projectileSpeedBonus: 3.6,
-                chaserSpawnInterval: 300,
-                chaserSpeedBonus: 0.75,
-                speedRampInterval: 520,
-                maxSpeed: 8.8
+                startSpeed: 4.05,
+                obstacleSpawnInterval: 80,
+                archerFireInterval: 86,
+                projectileSpeedBonus: 2.85,
+                chaserSpawnInterval: 340,
+                chaserSpeedBonus: 0.58,
+                speedRampInterval: 600,
+                maxSpeed: 7.8
             }
         };
-        DIFFICULTIES.easy.chaserSpawnInterval = 500;
-        DIFFICULTIES.easy.chaserSpeedBonus = 0.2;
-        DIFFICULTIES.normal.chaserSpawnInterval = 390;
-        DIFFICULTIES.normal.chaserSpeedBonus = 0.45;
+        DIFFICULTIES.easy.chaserSpawnInterval = 560;
+        DIFFICULTIES.easy.chaserSpeedBonus = 0.12;
+        DIFFICULTIES.normal.chaserSpawnInterval = 440;
+        DIFFICULTIES.normal.chaserSpeedBonus = 0.3;
 
         // サウンド管理（8bit風）
         const sound = {
@@ -899,15 +899,21 @@
                     y: groundY - riderHeight,
                     width: 52,
                     height: riderHeight,
-                    speed: 1.22 + Math.random() * 0.45 + currentDifficulty.chaserSpeedBonus
+                    speed: 1.0 + Math.random() * 0.35 + currentDifficulty.chaserSpeedBonus
                 });
             }
+        }
+
+        const desktopPointerQuery = window.matchMedia('(pointer:fine)');
+        function updatePlayCursor(isPlaying) {
+            canvas.style.cursor = (isPlaying && desktopPointerQuery.matches) ? 'none' : 'default';
         }
 
         function returnToTitle() {
             gameRunning = false;
             jumpHeld = false;
             stopBgm();
+            updatePlayCursor(false);
             gameOverScreen.style.display = 'none';
             winScreen.style.display = 'none';
             startScreen.style.display = 'flex';
@@ -1462,6 +1468,7 @@
             resizeCanvas();
             home.x = HOME_START_X;
             startScreen.style.display = 'none';
+            updatePlayCursor(true);
             if (!sound.muted) {
                 startBgm();
             }
@@ -1490,7 +1497,7 @@
 
             // Increase difficulty
             if (frameCount % currentDifficulty.speedRampInterval === 0 && gameSpeed < currentDifficulty.maxSpeed) {
-                gameSpeed += 0.3;
+                gameSpeed += 0.22;
             }
 
             // 入力感度を上げる（コヨーテタイム + 入力バッファ）
@@ -2224,6 +2231,7 @@
         function gameOver() {
             gameRunning = false;
             stopBgm();
+            updatePlayCursor(false);
             playHitSfx();
             const cause = deathCause || '力尽きた';
             finalScoreDisplay.innerHTML = `走行距離: ${score}m / ${GOAL_DISTANCE_METERS}m<br>死因: ${cause}`;
@@ -2233,6 +2241,7 @@
         function winGame() {
             gameRunning = false;
             stopBgm();
+            updatePlayCursor(false);
             playGoalSfx();
             winMessage.textContent = `メロスは無事に家に帰り着いた！\n走行距離: ${score}m`;
             winMessage.style.fontSize = '0.8em';
