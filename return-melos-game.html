@@ -43,9 +43,8 @@
 
         #gameContainer {
             position: relative;
-            width: min(800px, calc(100vw - 16px), calc((100vh - 16px) * 4 / 3));
-            aspect-ratio: 4 / 3;
-            height: auto;
+            width: min(calc(100vw - 8px), 920px);
+            height: min(calc(100vh - 8px), 920px);
             background: #000;
             border: 8px solid #444;
             overflow: hidden;
@@ -320,6 +319,9 @@
                 width: 200px;
                 height: 130px;
             }
+            #gameContainer {
+                border-width: 4px;
+            }
             #startScreen {
                 justify-content: flex-start;
                 padding-top: 10px;
@@ -385,6 +387,7 @@
     <script src="https://unpkg.com/tone@14.7.77/build/Tone.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
     <script>
+        const gameContainer = document.getElementById('gameContainer');
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const pixelArtCanvas = document.getElementById('pixelArt');
@@ -414,9 +417,17 @@
         ctx.imageSmoothingEnabled = false;
         pixelCtx.imageSmoothingEnabled = false;
 
-        // Canvas size
-        canvas.width = 800;
-        canvas.height = 600;
+        // Canvas size（縦画面でも圧縮せず、表示領域に合わせる）
+        function resizeCanvas() {
+            const width = Math.max(360, Math.floor(gameContainer.clientWidth));
+            const height = Math.max(500, Math.floor(gameContainer.clientHeight));
+            canvas.width = width;
+            canvas.height = height;
+            BASE_GROUND_Y = canvas.height - 120;
+            player.x = Math.floor(canvas.width * 0.67);
+            player.y = Math.min(player.y, BASE_GROUND_Y - player.height);
+            ctx.imageSmoothingEnabled = false;
+        }
 
         // Game state
         let gameRunning = false;
@@ -429,7 +440,7 @@
         const HOME_START_X = -(GOAL_DISTANCE_METERS * PIXELS_PER_METER);
         let terrainScroll = 0;
         let jumpHeld = false;
-        const BASE_GROUND_Y = canvas.height - 120;
+        let BASE_GROUND_Y = 480;
         const CHASER_WARNING_LEAD = 64;
         let pendingChaserWave = null;
         let chaserWarningTimer = 0;
@@ -527,6 +538,9 @@
             jumpBufferFrames: 0,
             maxJumpBufferFrames: 8
         };
+
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
 
         // Obstacles
         const obstacles = [];
@@ -867,8 +881,9 @@
             try {
                 chatState.gun = Gun({
                     peers: [
-                        'https://gun-manhattan.herokuapp.com/gun',
-                        'https://gun-us.herokuapp.com/gun'
+                        'https://gun.eco/gun',
+                        'https://gunjs.herokuapp.com/gun',
+                        'https://gun-vue.herokuapp.com/gun'
                     ]
                 });
                 chatState.room = chatState.gun.get('return-melos-board-v1').get('lobby');
@@ -1110,6 +1125,7 @@
             player.jumpHoldFrames = 0;
             player.coyoteFrames = 0;
             player.jumpBufferFrames = 0;
+            resizeCanvas();
             home.x = HOME_START_X;
             startScreen.style.display = 'none';
             if (!sound.muted) {
