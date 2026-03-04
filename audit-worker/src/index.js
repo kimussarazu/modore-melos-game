@@ -6,7 +6,7 @@ function json(data, status = 200) {
     headers: {
       'content-type': 'application/json; charset=utf-8',
       'access-control-allow-origin': '*',
-      'access-control-allow-headers': 'content-type, x-admin-token, x-admin-page',
+      'access-control-allow-headers': 'content-type, x-admin-token, x-admin-page, x-admin-path',
       'access-control-allow-methods': 'GET, POST, OPTIONS'
     }
   });
@@ -38,16 +38,13 @@ function isAdmin(req, env) {
 
 function isAllowedAdminPage(req, env) {
   const origin = req.headers.get('origin') || '';
-  const referer = req.headers.get('referer') || '';
   const adminPageHeader = req.headers.get('x-admin-page') || '';
+  const adminPathHeader = req.headers.get('x-admin-path') || '';
   const allowedOrigin = String(env.ADMIN_ORIGIN || 'https://kimussarazu.github.io');
-  const allowedRefererPrefix = String(
-    env.ADMIN_REFERER_PREFIX || 'https://kimussarazu.github.io/modore-melos-game/admin.html'
-  );
+  const allowedAdminPath = String(env.ADMIN_PATH || '/modore-melos-game/admin.html');
   if (adminPageHeader !== 'admin') return false;
-  // Some browsers omit Origin on same-origin GET; allow empty Origin.
-  if (origin && origin !== allowedOrigin) return false;
-  if (!referer || !referer.startsWith(allowedRefererPrefix)) return false;
+  if (origin !== allowedOrigin) return false;
+  if (adminPathHeader !== allowedAdminPath) return false;
   return true;
 }
 

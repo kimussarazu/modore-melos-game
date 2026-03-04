@@ -327,6 +327,7 @@
         async function loadAuditLogs() {
             const base = getAuditApiBase();
             const token = getAuditToken();
+            const adminPath = window.location.pathname || '/modore-melos-game/admin.html';
             if (!base) {
                 auditStatusEl.textContent = '監査APIベースURLを入力してください';
                 return;
@@ -340,7 +341,8 @@
                 const res = await fetch(`${base}/api/audit/logs?limit=500&include_deleted=1`, {
                     headers: {
                         'x-admin-token': token,
-                        'x-admin-page': 'admin'
+                        'x-admin-page': 'admin',
+                        'x-admin-path': adminPath
                     },
                     referrerPolicy: 'unsafe-url'
                 });
@@ -361,6 +363,7 @@
         async function markAuditDeletedIds(ids) {
             const base = getAuditApiBase();
             const token = getAuditToken();
+            const adminPath = window.location.pathname || '/modore-melos-game/admin.html';
             const unique = Array.from(new Set((ids || []).map((v) => String(v || '').trim()).filter(Boolean)));
             if (!base || !token || unique.length === 0) return;
             try {
@@ -369,7 +372,8 @@
                     headers: {
                         'content-type': 'application/json',
                         'x-admin-token': token,
-                        'x-admin-page': 'admin'
+                        'x-admin-page': 'admin',
+                        'x-admin-path': adminPath
                     },
                     referrerPolicy: 'unsafe-url',
                     body: JSON.stringify({ eventIds: unique })
