@@ -298,6 +298,12 @@
                 auditListEl.innerHTML = '<div class="empty">監査ログはありません。</div>';
                 return;
             }
+            const byEventId = new Map();
+            rows.forEach((row) => {
+                const eventId = String(row.eventId || row.event_id || '').trim();
+                if (!eventId || byEventId.has(eventId)) return;
+                byEventId.set(eventId, row);
+            });
             auditListEl.innerHTML = rows.map((row) => {
                 const createdAt = row.createdAtMs || row.created_at_ms || 0;
                 const time = formatTime(createdAt);
@@ -310,6 +316,11 @@
                 const eventId = escapeHtml(row.eventId || row.event_id || '-');
                 const targetEventId = escapeHtml(row.targetEventId || row.target_event_id || '-');
                 const deletedMark = (row.isDeleted || row.is_deleted) ? ' [削除済み]' : '';
+                const targetRaw = String(row.targetEventId || row.target_event_id || '').trim();
+                const targetPost = targetRaw ? byEventId.get(targetRaw) : null;
+                const targetSummary = targetPost
+                    ? `${escapeHtml(targetPost.name || '名無しメロス')} / ${escapeHtml(String(targetPost.text || '').slice(0, 80))}`
+                    : (targetRaw ? `event:${escapeHtml(targetRaw)}` : '-');
                 return `
                     <div class="auditItem">
                         <div class="meta">[${time}] ${action}${deletedMark}</div>
@@ -318,6 +329,7 @@
                         <div>text: ${text || '（なし）'}</div>
                         <div>event: ${eventId}</div>
                         <div>target: ${targetEventId}</div>
+                        <div>削除対象詳細: ${targetSummary}</div>
                         <div>UA: ${ua}</div>
                     </div>
                 `;
