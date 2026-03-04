@@ -311,6 +311,14 @@
             background: #4b4b4b;
         }
 
+        #backToTitleFromGameOver {
+            background: #4b4b4b;
+        }
+
+        #backToTitleFromGameOver:hover {
+            background: #5d5d5d;
+        }
+
         #difficultySelector {
             display: flex;
             align-items: center;
@@ -431,6 +439,7 @@
                 <button id="normalButton" class="difficultyBtn active">NORMAL</button>
                 <button id="hardButton" class="difficultyBtn">HARD</button>
             </div>
+            <button id="startButton">スタート</button>
             <div id="chatBoard">
                 <div id="chatTitle">歴代メロスの掲示板</div>
                 <div id="chatStatus">接続準備中...</div>
@@ -450,7 +459,6 @@
                     </div>
                 </div>
             </div>
-            <button id="startButton">スタート</button>
         </div>
 
         <div id="gameOverScreen">
@@ -817,6 +825,10 @@
         window.addEventListener('keydown', (e) => {
             if (e.code !== 'Space') return;
             e.preventDefault();
+            if (gameOverScreen.style.display === 'flex') {
+                if (!e.repeat) restartButton.click();
+                return;
+            }
             if (!jumpHeld && !e.repeat) {
                 requestJump();
             }
