@@ -92,6 +92,7 @@
             <button id="selectAllBtn" class="secondary">全選択</button>
             <button id="clearSelectBtn" class="secondary">選択解除</button>
             <button id="deleteSelectedBtn">選択を削除</button>
+            <button id="purgeAllBtn" class="secondary">取得済みを全削除</button>
         </div>
         <div id="commentList"><div class="empty">コメントを読み込み中...</div></div>
     </div>
@@ -103,6 +104,7 @@
             <button id="saveLetterBtn">手紙を掲示</button>
             <button id="deleteLetterBtn" class="secondary">手紙を削除</button>
         </div>
+        <div id="letterStatus" style="margin-top:8px; color:#b8e986;">手紙状態: 未確認</div>
     </div>
 
     <script>
@@ -114,6 +116,7 @@
         const NOSTR_ROOM_TAG = 'modore-melos-board-v1';
         const NOSTR_MOD_D = 'melos-moderation-v1';
         const NOSTR_LETTER_D = 'melos-creator-letter-v1';
+        const BOARD_RESET_TS = Date.parse('2026-03-04T09:08:00Z');
 
         const secretInput = document.getElementById('secretInput');
         const connectBtn = document.getElementById('connectBtn');
@@ -123,9 +126,11 @@
         const selectAllBtn = document.getElementById('selectAllBtn');
         const clearSelectBtn = document.getElementById('clearSelectBtn');
         const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+        const purgeAllBtn = document.getElementById('purgeAllBtn');
         const letterInput = document.getElementById('letterInput');
         const saveLetterBtn = document.getElementById('saveLetterBtn');
         const deleteLetterBtn = document.getElementById('deleteLetterBtn');
+        const letterStatusEl = document.getElementById('letterStatus');
 
         const state = {
             pool: null,
@@ -134,7 +139,8 @@
             messages: new Map(),
             selected: new Set(),
             removedEventIds: new Set(),
-            adminDeletedIds: new Set()
+            adminDeletedIds: new Set(),
+            letterTs: 0
         };
 
         function escapeHtml(text) {
@@ -201,6 +207,8 @@
         function ingestEvent(event) {
             if (!event || !event.id) return;
             if (event.kind === 1) {
+                const eventTs = (event.created_at || Math.floor(Date.now() / 1000)) * 1000;
+                if (eventTs < BOARD_RESET_TS) return;
                 let payload;
                 try {
                     payload = JSON.parse(event.content || '{}');
@@ -212,7 +220,7 @@
                     id: event.id,
                     name: String(payload.name || '名無しメロス').slice(0, 12),
                     text: String(payload.text || '').slice(0, 80),
-                    ts: (event.created_at || Math.floor(Date.now() / 1000)) * 1000
+                    ts: eventTs
                 });
                 return;
             }
@@ -246,13 +254,17 @@
                     return;
                 }
                 if (dValue === NOSTR_LETTER_D) {
+                    const eventTs = (event.created_at || Math.floor(Date.now() / 1000)) * 1000;
+                    if (eventTs < state.letterTs) return;
                     let payload;
                     try {
                         payload = JSON.parse(event.content || '{}');
                     } catch {
                         payload = null;
                     }
+                    state.letterTs = eventTs;
                     letterInput.value = payload && typeof payload.text === 'string' ? payload.text.slice(0, 220) : '';
+                    letterStatusEl.textContent = '手紙状態: 反映済み';
                 }
             }
         }
@@ -265,10 +277,15 @@
                 state.selected.clear();
                 state.removedEventIds.clear();
                 state.adminDeletedIds.clear();
+                state.letterTs = 0;
                 const events = await state.pool.list(NOSTR_RELAYS, [{
-                    kinds: [1, 5, 30078],
+                    kinds: [1, 5],
                     '#t': [NOSTR_ROOM_TAG],
                     limit: 280
+                }, {
+                    kinds: [30078],
+                    '#d': [NOSTR_MOD_D, NOSTR_LETTER_D],
+                    limit: 120
                 }]);
                 events.forEach(ingestEvent);
                 renderComments();
@@ -314,6 +331,7 @@
 
         function publishCreatorLetter(text) {
             const safeText = String(text || '').slice(0, 220);
+            letterStatusEl.textContent = '手紙状態: 反映待ち...';
             const ok = publishEvent({
                 kind: 30078,
                 created_at: Math.floor(Date.now() / 1000),
@@ -327,6 +345,37 @@
             });
             if (!ok) return;
             statusEl.textContent = safeText ? '手紙を更新しました' : '手紙を削除しました';
+            verifyLetterReflection(safeText);
+        }
+
+        async function verifyLetterReflection(expectedText) {
+            if (!state.pool || !state.pubkey) return;
+            try {
+                const events = await state.pool.list(NOSTR_RELAYS, [{
+                    kinds: [30078],
+                    authors: [state.pubkey],
+                    '#d': [NOSTR_LETTER_D],
+                    limit: 3
+                }]);
+                const latest = events
+                    .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0];
+                if (!latest) {
+                    letterStatusEl.textContent = '手紙状態: 未確認';
+                    return;
+                }
+                let payload = null;
+                try {
+                    payload = JSON.parse(latest.content || '{}');
+                } catch {
+                    payload = null;
+                }
+                const text = payload && typeof payload.text === 'string' ? payload.text.slice(0, 220) : '';
+                letterStatusEl.textContent = text === expectedText
+                    ? '手紙状態: 反映済み'
+                    : '手紙状態: relay反映待ち';
+            } catch {
+                letterStatusEl.textContent = '手紙状態: 確認失敗';
+            }
         }
 
         connectBtn.addEventListener('click', async () => {
@@ -378,6 +427,15 @@
             const ids = Array.from(state.selected);
             if (ids.length === 0) {
                 statusEl.textContent = '削除対象を選択してください';
+                return;
+            }
+            publishModerationDelete(ids);
+        });
+
+        purgeAllBtn.addEventListener('click', () => {
+            const ids = Array.from(state.messages.keys()).filter((id) => !state.removedEventIds.has(id));
+            if (ids.length === 0) {
+                statusEl.textContent = '全削除対象がありません';
                 return;
             }
             publishModerationDelete(ids);

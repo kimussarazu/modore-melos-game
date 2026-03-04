@@ -172,25 +172,44 @@
             display: flex;
             gap: 10px;
             align-items: flex-start;
+            position: relative;
         }
 
         #chatMain {
             flex: 1;
             min-width: 0;
+            padding-right: 164px;
         }
 
         #creatorLetter {
-            width: 150px;
+            position: absolute;
+            top: -6px;
+            right: -2px;
+            width: 146px;
             min-height: 110px;
             padding: 8px;
             background: rgba(245, 236, 200, 0.9);
             border: 3px solid #7b6b3f;
             color: #2a1f12;
-            box-shadow: 3px 3px 0 #000;
+            box-shadow: 3px 4px 0 #000;
             font-size: 0.56em;
             line-height: 1.45;
             white-space: pre-wrap;
             word-break: break-word;
+            transform: rotate(1.6deg);
+            z-index: 2;
+        }
+
+        #creatorLetter::before {
+            content: '';
+            position: absolute;
+            top: -10px;
+            left: 50%;
+            width: 34px;
+            height: 10px;
+            transform: translateX(-50%) rotate(-4deg);
+            background: rgba(240, 225, 165, 0.8);
+            border: 1px solid #8e7c47;
         }
 
         #creatorLetterTitle {
@@ -345,9 +364,18 @@
             #chatBoardContent {
                 flex-direction: column;
             }
+            #chatMain {
+                padding-right: 0;
+            }
             #creatorLetter {
+                position: static;
                 width: 100%;
                 min-height: 74px;
+                transform: none;
+                margin-top: 4px;
+            }
+            #creatorLetter::before {
+                display: none;
             }
             #chatMessages {
                 height: 100px;
@@ -584,6 +612,7 @@
             removedEventIds: new Set(),
             deleteClaims: new Map(),
             creatorLetter: '',
+            creatorLetterTs: 0,
             adminPubkey: ''
         };
         const NOSTR_RELAYS = [
@@ -595,6 +624,7 @@
         const NOSTR_MOD_D = 'melos-moderation-v1';
         const NOSTR_LETTER_D = 'melos-creator-letter-v1';
         const ADMIN_PUBKEY_STORAGE_KEY = 'melos_admin_pubkey';
+        const BOARD_RESET_TS = Date.parse('2026-03-04T09:08:00Z');
 
         // Player - Red Melos
         const player = {
@@ -1029,7 +1059,10 @@
                 payload = null;
             }
             if (!payload || typeof payload.text !== 'string') return;
+            const eventTs = (event.created_at || Math.floor(Date.now() / 1000)) * 1000;
+            if (eventTs < chatState.creatorLetterTs) return;
             chatState.creatorLetter = String(payload.text || '').slice(0, 220);
+            chatState.creatorLetterTs = eventTs;
             renderCreatorLetter();
         }
 
@@ -1071,6 +1104,8 @@
                 return;
             }
             if (event.kind !== 1) return;
+            const eventTs = (event.created_at || Math.floor(Date.now() / 1000)) * 1000;
+            if (eventTs < BOARD_RESET_TS) return;
             let payload;
             try {
                 payload = JSON.parse(event.content || '{}');
@@ -1083,7 +1118,7 @@
                 text: String(payload.text || '').slice(0, 80),
                 uid: payload.uid || '',
                 authorPubkey: event.pubkey || '',
-                ts: (event.created_at || Math.floor(Date.now() / 1000)) * 1000
+                ts: eventTs
             }, event.id);
         }
 
@@ -1091,9 +1126,13 @@
             if (!chatState.pool) return;
             try {
                 const events = await chatState.pool.list(NOSTR_RELAYS, [{
-                    kinds: [1, 5, 30078],
+                    kinds: [1, 5],
                     '#t': [NOSTR_ROOM_TAG],
                     limit: 220
+                }, {
+                    kinds: [30078],
+                    '#d': [NOSTR_MOD_D, NOSTR_LETTER_D],
+                    limit: 120
                 }]);
                 events.forEach(ingestNostrEvent);
             } catch (error) {
@@ -1131,7 +1170,10 @@
                 chatState.pool = new NostrTools.SimplePool();
                 chatState.pool.subscribeMany(
                     NOSTR_RELAYS,
-                    [{ kinds: [1, 5, 30078], '#t': [NOSTR_ROOM_TAG], limit: 220 }],
+                    [
+                        { kinds: [1, 5], '#t': [NOSTR_ROOM_TAG], limit: 220 },
+                        { kinds: [30078], '#d': [NOSTR_MOD_D, NOSTR_LETTER_D], limit: 120 }
+                    ],
                     {
                         onevent(event) {
                             ingestNostrEvent(event);
