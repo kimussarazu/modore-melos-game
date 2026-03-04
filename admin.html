@@ -238,7 +238,6 @@
         function ingestEvent(event) {
             if (!event || !event.id) return;
             if (event.kind === 1) {
-                if (!hasRoomTag(event)) return;
                 const eventTs = (event.created_at || Math.floor(Date.now() / 1000)) * 1000;
                 if (eventTs < BOARD_RESET_TS) return;
                 let payload;
@@ -248,6 +247,8 @@
                     payload = null;
                 }
                 if (!payload || typeof payload.text !== 'string') return;
+                const uid = String(payload.uid || '');
+                if (!hasRoomTag(event) && !uid.startsWith('uid_')) return;
                 state.messages.set(event.id, {
                     id: event.id,
                     name: String(payload.name || '名無しメロス').slice(0, 12),
@@ -417,12 +418,7 @@
         }
 
         function publishModerationDelete(ids) {
-            const next = new Set(state.adminDeletedIds);
-            (ids || []).forEach((v) => {
-                const key = String(v || '').trim();
-                if (key) next.add(key);
-            });
-            const unique = Array.from(next);
+            const unique = Array.from(new Set((ids || []).map((v) => String(v || '').trim()).filter(Boolean)));
             if (unique.length === 0) return;
             const ok = publishEvent({
                 kind: 30078,
@@ -436,7 +432,7 @@
                 })
             });
             if (!ok) return;
-            state.adminDeletedIds = next;
+            unique.forEach((id) => state.adminDeletedIds.add(id));
             applyDeletedIds(unique);
             renderComments();
             statusEl.textContent = `${unique.length}件を削除反映しました`;
