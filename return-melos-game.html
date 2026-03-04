@@ -695,6 +695,16 @@
         const NOSTR_SITE_LOCK_D = 'melos-site-lock-v1';
         const ADMIN_PUBKEY_STORAGE_KEY = 'melos_admin_pubkey';
         const BOARD_RESET_TS = Date.parse('2026-03-04T14:04:47Z');
+        const CHAT_BLOCK_PATTERNS = [
+            // 下ネタ
+            /まんこ|ちんこ|ちんちん|おっぱい|ぱいぱい|せっくす|セックス|えろ|エロ|変態|オナニー/i,
+            /ちくび|乳首|陰部|精液|射精|勃起|中出し|フェラ|クンニ|アナル/i,
+            // 脅迫・恐喝・違法行為
+            /恐喝|脅迫|脅す|金を払え|金払え|払わないと|晒す|拡散するぞ|殺す|死ね|しね/i,
+            /レイプ|強姦|強かん|誘拐|拉致|放火|爆破|薬物|覚醒剤|大麻|麻薬/i,
+            // 差別・ヘイト（代表的なものを最低限ブロック）
+            /障害者(は|って)?死ね|部落|穢多|非人/i
+        ];
         const AUTO_UPDATE_TARGET = './return-melos-game.html';
         const AUTO_UPDATE_INTERVAL_MS = 45000;
         let autoUpdateTimer = null;
@@ -1029,6 +1039,20 @@
             const hh = String(date.getHours()).padStart(2, '0');
             const mm = String(date.getMinutes()).padStart(2, '0');
             return `${hh}:${mm}`;
+        }
+
+        function normalizeModerationText(text) {
+            return String(text || '')
+                .toLowerCase()
+                .normalize('NFKC')
+                .replace(/\s+/g, '')
+                .replace(/[!！?？.,。・､、\-ー~〜_]/g, '');
+        }
+
+        function containsBlockedWord(name, text) {
+            const source = `${name || ''}:${text || ''}`;
+            const normalized = normalizeModerationText(source);
+            return CHAT_BLOCK_PATTERNS.some((pattern) => pattern.test(source) || pattern.test(normalized));
         }
 
         function bytesToHex(bytes) {
@@ -1377,6 +1401,11 @@
             const name = (chatNameInput.value || '名無しメロス').trim().slice(0, 12);
             const text = (chatInput.value || '').trim().slice(0, 80);
             if (!text) return;
+
+            if (containsBlockedWord(name, text)) {
+                chatStatus.textContent = '不適切な表現が含まれるため送信できません';
+                return;
+            }
 
             localStorage.setItem('melos_chat_name', name);
             if (!chatState.pool || !chatState.seckey) {
