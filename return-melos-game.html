@@ -120,6 +120,11 @@
             transform: translate(3px, 3px);
             box-shadow: 3px 3px 0px #000;
         }
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+            box-shadow: 2px 2px 0px #000;
+        }
 
         #score {
             position: absolute;
@@ -156,6 +161,18 @@
             max-width: 600px;
             line-height: 2;
             color: #ddd;
+        }
+        #siteLockNotice {
+            display: none;
+            max-width: min(92%, 680px);
+            margin: 8px 0 4px;
+            padding: 8px 10px;
+            border: 3px solid #8b2525;
+            background: rgba(60, 0, 0, 0.6);
+            color: #ffd9d9;
+            font-size: 0.72em;
+            text-align: center;
+            line-height: 1.7;
         }
 
         #chatBoard {
@@ -440,6 +457,7 @@
                 <button id="hardButton" class="difficultyBtn">HARD</button>
             </div>
             <button id="startButton">スタート</button>
+            <div id="siteLockNotice">ただいま メンテナンスちゅうです。</div>
             <div id="chatBoard">
                 <div id="chatTitle">歴代メロスの掲示板</div>
                 <div id="chatStatus">接続準備中...</div>
@@ -506,6 +524,7 @@
         const chatSendButton = document.getElementById('chatSendButton');
         const chatRefreshButton = document.getElementById('chatRefreshButton');
         const creatorLetterBody = document.getElementById('creatorLetterBody');
+        const siteLockNotice = document.getElementById('siteLockNotice');
 
         // Pixel art rendering
         ctx.imageSmoothingEnabled = false;
@@ -517,7 +536,7 @@
             const height = Math.max(500, Math.floor(gameContainer.clientHeight));
             const isPortrait = height > width * 1.05;
             const isTouchLike = window.matchMedia('(pointer:coarse)').matches;
-            const mobileZoomOut = isTouchLike ? 1.18 : 1;
+            const mobileZoomOut = isTouchLike ? 1.26 : 1;
             canvas.width = Math.floor(width * mobileZoomOut);
             canvas.height = Math.floor(height * mobileZoomOut);
             BASE_GROUND_Y = isPortrait
@@ -661,7 +680,9 @@
             deleteClaims: new Map(),
             creatorLetter: '',
             creatorLetterTs: 0,
-            adminPubkey: ''
+            adminPubkey: '',
+            siteLocked: false,
+            siteLockTs: 0
         };
         const NOSTR_RELAYS = [
             'wss://relay.damus.io',
@@ -671,8 +692,14 @@
         const NOSTR_ROOM_TAG = 'modore-melos-board-v1';
         const NOSTR_MOD_D = 'melos-moderation-v1';
         const NOSTR_LETTER_D = 'melos-creator-letter-v1';
+        const NOSTR_SITE_LOCK_D = 'melos-site-lock-v1';
         const ADMIN_PUBKEY_STORAGE_KEY = 'melos_admin_pubkey';
         const BOARD_RESET_TS = Date.parse('2026-03-04T12:52:00Z');
+        const AUTO_UPDATE_TARGET = './return-melos-game.html';
+        const AUTO_UPDATE_INTERVAL_MS = 45000;
+        let autoUpdateTimer = null;
+        let autoUpdateKnownSignature = '';
+        let autoUpdateQueued = false;
 
         // Player - Red Melos
         const player = {
@@ -960,6 +987,8 @@
             startScreen.scrollTop = 0;
             scoreDisplay.textContent = `残り: ${GOAL_DISTANCE_METERS}m [${DIFFICULTIES[selectedDifficulty].label}]`;
             drawPixelArtTitle();
+            updateSiteLockUi();
+            applyQueuedAutoUpdateIfIdle();
         }
 
         function setDeathCauseByObstacle(obstacle) {
@@ -1020,6 +1049,22 @@
             creatorLetterBody.textContent = text || '（まだ ありません）';
         }
 
+        function updateSiteLockUi() {
+            const locked = !!chatState.siteLocked;
+            if (siteLockNotice) {
+                siteLockNotice.style.display = locked ? 'block' : 'none';
+                if (locked) {
+                    siteLockNotice.textContent = 'ただいま きんきゅうメンテナンスちゅうです。しばらく まってください。';
+                }
+            }
+            startButton.disabled = locked;
+            startButton.textContent = locked ? 'いまは あそべません' : 'スタート';
+            if (locked && gameRunning) {
+                deathCause = '緊急メンテナンスで中断した';
+                returnToTitle();
+            }
+        }
+
         function renderChatMessages() {
             const sorted = Array.from(chatState.messages.values())
                 .sort((a, b) => (a.ts || 0) - (b.ts || 0))
@@ -1034,8 +1079,8 @@
                 const safeName = escapeHtml(msg.name || '名無しメロス');
                 const safeText = escapeHtml(msg.text || '');
                 const time = formatTime(msg.ts);
-                const canDeleteSelf = !!msg.key && !!chatState.pubkey && msg.authorPubkey === chatState.pubkey;
-                const actions = canDeleteSelf
+                const canDeleteAny = !!msg.key && !!chatState.pubkey && !!chatState.pool;
+                const actions = canDeleteAny
                     ? `<span class="chatActions"><button class="chatActionBtn" data-action="delete" data-key="${escapeHtml(msg.key)}">削除</button></span>`
                     : '';
                 return `<div class="chatMessage"><span class="chatMeta">[${time}] ${safeName}:</span> ${safeText}${actions}</div>`;
@@ -1045,8 +1090,8 @@
 
         function hasValidDeleteClaim(messageId, authorPubkey) {
             const claimers = chatState.deleteClaims.get(messageId);
-            if (!claimers || !authorPubkey) return false;
-            return claimers.has(authorPubkey);
+            if (!claimers) return false;
+            return claimers.size > 0;
         }
 
         function ingestChatRecord(data, key) {
@@ -1124,6 +1169,23 @@
             renderCreatorLetter();
         }
 
+        function ingestSiteLockEvent(event) {
+            if (!event || !event.id || chatState.seenEventIds.has(event.id)) return;
+            chatState.seenEventIds.add(event.id);
+            if (!isTrustedAdminEvent(event)) return;
+            let payload = null;
+            try {
+                payload = JSON.parse(event.content || '{}');
+            } catch {
+                payload = null;
+            }
+            const eventTs = (event.created_at || Math.floor(Date.now() / 1000)) * 1000;
+            if (eventTs < chatState.siteLockTs) return;
+            chatState.siteLockTs = eventTs;
+            chatState.siteLocked = !!(payload && payload.locked);
+            updateSiteLockUi();
+        }
+
         function ingestDeletionEvent(event) {
             if (!event || !event.id || chatState.seenEventIds.has(event.id)) return;
             chatState.seenEventIds.add(event.id);
@@ -1134,10 +1196,7 @@
                     const claimers = chatState.deleteClaims.get(targetId) || new Set();
                     claimers.add(event.pubkey || '');
                     chatState.deleteClaims.set(targetId, claimers);
-                    const target = chatState.messages.get(targetId);
-                    if (target && target.authorPubkey === event.pubkey) {
-                        ids.push(targetId);
-                    }
+                    ids.push(targetId);
                 }
             });
             applyDeletedIds(ids);
@@ -1158,6 +1217,10 @@
                 }
                 if (dValue === NOSTR_LETTER_D) {
                     ingestCreatorLetterEvent(event);
+                    return;
+                }
+                if (dValue === NOSTR_SITE_LOCK_D) {
+                    ingestSiteLockEvent(event);
                 }
                 return;
             }
@@ -1195,7 +1258,7 @@
                 try {
                     metaEvents = await chatState.pool.list(NOSTR_RELAYS, [{
                         kinds: [30078],
-                        '#d': [NOSTR_MOD_D, NOSTR_LETTER_D],
+                        '#d': [NOSTR_MOD_D, NOSTR_LETTER_D, NOSTR_SITE_LOCK_D],
                         limit: 120
                     }]);
                 } catch {
@@ -1262,6 +1325,54 @@
             }
         }
 
+        async function fetchRemoteSignature() {
+            try {
+                const res = await fetch(`${AUTO_UPDATE_TARGET}?_v=${Date.now()}`, { cache: 'no-store' });
+                if (!res.ok) return '';
+                const text = await res.text();
+                // 軽量な差分検知用シグネチャ
+                let hash = 2166136261;
+                for (let i = 0; i < text.length; i++) {
+                    hash ^= text.charCodeAt(i);
+                    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+                }
+                return String(hash >>> 0);
+            } catch {
+                return '';
+            }
+        }
+
+        function applyQueuedAutoUpdateIfIdle() {
+            if (autoUpdateQueued && !gameRunning) {
+                location.reload();
+            }
+        }
+
+        async function checkForAutoUpdate() {
+            const signature = await fetchRemoteSignature();
+            if (!signature) return;
+            if (!autoUpdateKnownSignature) {
+                autoUpdateKnownSignature = signature;
+                return;
+            }
+            if (signature === autoUpdateKnownSignature) return;
+            autoUpdateKnownSignature = signature;
+            if (gameRunning) {
+                autoUpdateQueued = true;
+                chatStatus.textContent = '新しいバージョンを検出: このプレイ終了後に自動更新します';
+                return;
+            }
+            location.reload();
+        }
+
+        function startAutoUpdateWatcher() {
+            const isTouchLike = window.matchMedia('(pointer:coarse)').matches;
+            if (!isTouchLike) return;
+            if (autoUpdateTimer) clearInterval(autoUpdateTimer);
+            checkForAutoUpdate();
+            autoUpdateTimer = setInterval(checkForAutoUpdate, AUTO_UPDATE_INTERVAL_MS);
+        }
+
         function sendChatMessage() {
             const name = (chatNameInput.value || '名無しメロス').trim().slice(0, 12);
             const text = (chatInput.value || '').trim().slice(0, 80);
@@ -1299,9 +1410,6 @@
 
         function deleteOwnMessage(messageId) {
             if (!messageId || !chatState.pool || !chatState.seckey) return;
-            const target = chatState.messages.get(messageId);
-            if (!target || target.authorPubkey !== chatState.pubkey) return;
-
             const deleteTemplate = {
                 kind: 5,
                 created_at: Math.floor(Date.now() / 1000),
@@ -1314,7 +1422,7 @@
             const signed = NostrTools.finalizeEvent(deleteTemplate, chatState.seckey);
             chatState.pool.publish(NOSTR_RELAYS, signed);
             applyDeletedIds([messageId]);
-            chatStatus.textContent = 'コメントを削除しました';
+            chatStatus.textContent = 'コメントを削除しました（全体反映）';
         }
 
         canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -1483,6 +1591,11 @@
         }
 
         async function startGame() {
+            if (chatState.siteLocked) {
+                updateSiteLockUi();
+                chatStatus.textContent = '現在はメンテナンス中のため開始できません';
+                return;
+            }
             await prepareAudio();
             currentDifficulty = DIFFICULTIES[selectedDifficulty];
             gameRunning = true;
@@ -2286,6 +2399,7 @@
             const cause = deathCause || '力尽きた';
             finalScoreDisplay.innerHTML = `走行距離: ${score}m / ${GOAL_DISTANCE_METERS}m<br>死因: ${cause}`;
             gameOverScreen.style.display = 'flex';
+            applyQueuedAutoUpdateIfIdle();
         }
 
         function winGame() {
@@ -2299,11 +2413,14 @@
             winMessage.style.color = '#ffd700';
             winMessage.style.fontFamily = "'PixelMplus12', 'Press Start 2P', monospace";
             winScreen.style.display = 'flex';
+            applyQueuedAutoUpdateIfIdle();
         }
 
         // Draw pixel art on start screen
         drawPixelArtTitle();
         initRealtimeChat();
+        updateSiteLockUi();
+        startAutoUpdateWatcher();
     </script>
 </body>
 </html>

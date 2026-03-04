@@ -89,6 +89,15 @@
     </div>
 
     <div class="panel">
+        <h2>緊急メンテナンス（プレイ側アクセス）</h2>
+        <div class="row">
+            <button id="lockOnBtn">プレイ側を閉鎖</button>
+            <button id="lockOffBtn" class="secondary">閉鎖を解除</button>
+        </div>
+        <div id="lockStatus" style="margin-top:8px; color:#ffcf9b;">閉鎖状態: 未確認</div>
+    </div>
+
+    <div class="panel">
         <h2>過去コメント削除</h2>
         <div class="row" style="margin-bottom:8px;">
             <button id="selectAllBtn" class="secondary">全選択</button>
@@ -122,6 +131,7 @@
         const NOSTR_ROOM_TAG = 'modore-melos-board-v1';
         const NOSTR_MOD_D = 'melos-moderation-v1';
         const NOSTR_LETTER_D = 'melos-creator-letter-v1';
+        const NOSTR_SITE_LOCK_D = 'melos-site-lock-v1';
         const BOARD_RESET_TS = Date.parse('2026-03-04T12:52:00Z');
         const RELAY_TIMEOUT_MS = 4200;
 
@@ -130,6 +140,9 @@
         const refreshBtn = document.getElementById('refreshBtn');
         const statusEl = document.getElementById('status');
         const liveStatusEl = document.getElementById('liveStatus');
+        const lockOnBtn = document.getElementById('lockOnBtn');
+        const lockOffBtn = document.getElementById('lockOffBtn');
+        const lockStatusEl = document.getElementById('lockStatus');
         const commentList = document.getElementById('commentList');
         const selectAllBtn = document.getElementById('selectAllBtn');
         const clearSelectBtn = document.getElementById('clearSelectBtn');
@@ -152,7 +165,9 @@
             adminDeletedIds: new Set(),
             letterTs: 0,
             pendingLetterText: null,
-            liveSub: null
+            liveSub: null,
+            siteLocked: false,
+            siteLockTs: 0
         };
 
         function escapeHtml(text) {
@@ -182,6 +197,32 @@
                 .replace(/\[[0-9]{1,2}:[0-9]{2}\]/g, '')
                 .replace(/\s+/g, '')
                 .trim();
+        }
+
+        function renderSiteLockStatus() {
+            lockStatusEl.textContent = state.siteLocked
+                ? '閉鎖状態: ON（プレイ側は停止中）'
+                : '閉鎖状態: OFF（プレイ側は公開中）';
+            lockStatusEl.style.color = state.siteLocked ? '#ff9f9f' : '#b8e986';
+        }
+
+        function resetStateForReconnect() {
+            if (state.liveSub && typeof state.liveSub.close === 'function') {
+                try { state.liveSub.close(); } catch {}
+            }
+            state.liveSub = null;
+            state.messages.clear();
+            state.selected.clear();
+            state.removedEventIds.clear();
+            state.adminDeletedIds.clear();
+            state.letterTs = 0;
+            state.pendingLetterText = null;
+            state.siteLockTs = 0;
+            state.siteLocked = false;
+            letterInput.value = '';
+            renderComments();
+            letterStatusEl.textContent = '手紙状態: 未確認';
+            renderSiteLockStatus();
         }
 
         function hexToBytes(hex) {
@@ -319,6 +360,20 @@
                     } else {
                         letterStatusEl.textContent = '手紙状態: 反映済み';
                     }
+                    return;
+                }
+                if (dValue === NOSTR_SITE_LOCK_D) {
+                    const eventTs = (event.created_at || Math.floor(Date.now() / 1000)) * 1000;
+                    if (eventTs < state.siteLockTs) return;
+                    state.siteLockTs = eventTs;
+                    let payload;
+                    try {
+                        payload = JSON.parse(event.content || '{}');
+                    } catch {
+                        payload = null;
+                    }
+                    state.siteLocked = !!(payload && payload.locked);
+                    renderSiteLockStatus();
                 }
             }
         }
@@ -331,6 +386,10 @@
             state.removedEventIds.clear();
             state.adminDeletedIds.clear();
             state.letterTs = 0;
+            state.siteLockTs = 0;
+            state.siteLocked = false;
+            letterStatusEl.textContent = '手紙状態: 読み込み中...';
+            renderSiteLockStatus();
             renderComments();
 
             const boardFilters = [{
@@ -345,7 +404,7 @@
             }];
             const metaFiltersPrimary = [{
                 kinds: [30078],
-                '#d': [NOSTR_MOD_D, NOSTR_LETTER_D],
+                '#d': [NOSTR_MOD_D, NOSTR_LETTER_D, NOSTR_SITE_LOCK_D],
                 limit: 60
             }];
             const metaFiltersFallback = [{
@@ -388,6 +447,9 @@
                     NOSTR_RELAYS.map((relay) => listFromRelay(relay, metaFiltersFallback, Math.floor(RELAY_TIMEOUT_MS * 0.85)))
                 )).flat();
             metaEvents.forEach(ingestEvent);
+            if (state.letterTs === 0 && state.pendingLetterText === null) {
+                letterStatusEl.textContent = '手紙状態: なし';
+            }
             renderComments();
 
             if (state.messages.size === 0) {
@@ -531,6 +593,34 @@
             }, 2600);
         }
 
+        function publishSiteLock(locked) {
+            if (!state.pool || !state.seckey) {
+                statusEl.textContent = '先に管理者として接続してください';
+                return;
+            }
+            const nextLocked = !!locked;
+            const ok = publishEvent({
+                kind: 30078,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: [
+                    ['d', NOSTR_SITE_LOCK_D],
+                    ['t', NOSTR_ROOM_TAG]
+                ],
+                content: JSON.stringify({
+                    locked: nextLocked
+                })
+            });
+            if (!ok) return;
+            state.siteLocked = nextLocked;
+            renderSiteLockStatus();
+            statusEl.textContent = nextLocked
+                ? 'プレイ側を閉鎖しました'
+                : 'プレイ側の閉鎖を解除しました';
+            setTimeout(() => {
+                loadBoardData();
+            }, 1200);
+        }
+
         connectBtn.addEventListener('click', async () => {
             if (typeof NostrTools === 'undefined') {
                 statusEl.textContent = 'nostr-toolsの読み込みに失敗しました';
@@ -542,10 +632,12 @@
                 return;
             }
             try {
+                resetStateForReconnect();
                 state.seckey = sec;
                 state.pubkey = NostrTools.getPublicKey(sec);
                 state.pool = new NostrTools.SimplePool();
                 localStorage.setItem('melos_admin_pubkey', state.pubkey);
+                localStorage.setItem('melos_nostr_secret', secretInput.value.trim());
                 statusEl.textContent = `接続しました: ${state.pubkey.slice(0, 12)}...`;
                 await loadBoardData();
                 startRealtimeSync();
@@ -605,11 +697,14 @@
             letterInput.value = '';
             publishCreatorLetter('');
         });
+        lockOnBtn.addEventListener('click', () => publishSiteLock(true));
+        lockOffBtn.addEventListener('click', () => publishSiteLock(false));
 
         const cachedSecret = localStorage.getItem('melos_nostr_secret');
         if (cachedSecret) {
             secretInput.value = cachedSecret;
         }
+        renderSiteLockStatus();
     </script>
 </body>
 </html>
