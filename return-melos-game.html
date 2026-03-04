@@ -518,10 +518,14 @@
             canvas.width = width;
             canvas.height = height;
             const isPortrait = height > width * 1.05;
+            const isTouchLike = window.matchMedia('(pointer:coarse)').matches;
             BASE_GROUND_Y = isPortrait
                 ? Math.floor(canvas.height * 0.64)
                 : (canvas.height - 120);
-            player.x = Math.floor(canvas.width * 0.67);
+            const playerXRatio = isTouchLike
+                ? (isPortrait ? 0.76 : 0.73)
+                : 0.67;
+            player.x = Math.floor(canvas.width * playerXRatio);
             player.y = Math.min(player.y, BASE_GROUND_Y - player.height);
             ctx.imageSmoothingEnabled = false;
         }
@@ -632,7 +636,7 @@
         const NOSTR_MOD_D = 'melos-moderation-v1';
         const NOSTR_LETTER_D = 'melos-creator-letter-v1';
         const ADMIN_PUBKEY_STORAGE_KEY = 'melos_admin_pubkey';
-        const BOARD_RESET_TS = Date.parse('2026-03-04T09:08:00Z');
+        const BOARD_RESET_TS = Date.parse('2026-03-04T11:48:00Z');
 
         // Player - Red Melos
         const player = {
