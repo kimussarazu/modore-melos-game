@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>戻れメロス 掲示板管理</title>
+    <script src="https://cdn.jsdelivr.net/npm/nostr-tools@2.7.2/lib/nostr.bundle.js"></script>
+    <style>
+        @font-face {
+            font-family: 'PixelMplus12';
+            src: url('./PixelMplus12-Regular.ttf') format('truetype');
+            font-weight: 400;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'PixelMplus12';
+            src: url('./PixelMplus12-Bold.ttf') format('truetype');
+            font-weight: 700;
+            font-style: normal;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 18px;
+            background: #0f1020;
+            color: #f1f1f1;
+            font-family: 'PixelMplus12', monospace;
+            line-height: 1.6;
+        }
+        .panel {
+            max-width: 980px;
+            margin: 0 auto 14px;
+            padding: 12px;
+            border: 3px solid #2e3159;
+            background: rgba(0, 0, 0, 0.45);
+            box-shadow: 4px 4px 0 #000;
+        }
+        h1, h2 { margin: 0 0 8px; color: #ffd86f; }
+        .row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        input, textarea, button {
+            font-family: inherit;
+            border: 2px solid #2f2f2f;
+            background: #141414;
+            color: #fff;
+            padding: 8px;
+        }
+        input, textarea { flex: 1; min-width: 220px; }
+        textarea { min-height: 86px; resize: vertical; }
+        button {
+            cursor: pointer;
+            background: #2f5ea8;
+            min-width: 110px;
+        }
+        button.secondary { background: #4d4d4d; }
+        #status { color: #b8e986; min-height: 20px; }
+        #commentList {
+            max-height: 380px;
+            overflow-y: auto;
+            border: 2px solid #202020;
+            background: rgba(20, 20, 20, 0.9);
+            padding: 8px;
+        }
+        .commentItem {
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #2a2a2a;
+            font-size: 0.95rem;
+        }
+        .meta { color: #9ecfff; }
+        .empty { color: #c6c6c6; }
+    </style>
+</head>
+<body>
+    <div class="panel">
+        <h1>掲示板 管理画面</h1>
+        <div class="row">
+            <input id="secretInput" placeholder="管理者のNostr秘密鍵（hex）">
+            <button id="connectBtn">接続</button>
+            <button id="refreshBtn" class="secondary">再読み込み</button>
+        </div>
+        <div id="status">未接続</div>
+    </div>
+
+    <div class="panel">
+        <h2>過去コメント削除</h2>
+        <div class="row" style="margin-bottom:8px;">
+            <button id="selectAllBtn" class="secondary">全選択</button>
+            <button id="clearSelectBtn" class="secondary">選択解除</button>
+            <button id="deleteSelectedBtn">選択を削除</button>
+        </div>
+        <div id="commentList"><div class="empty">コメントを読み込み中...</div></div>
+    </div>
+
+    <div class="panel">
+        <h2>つくりての手紙（右側表示）</h2>
+        <textarea id="letterInput" maxlength="220" placeholder="ここに書いた文が掲示板の右側に表示されます"></textarea>
+        <div class="row" style="margin-top:8px;">
+            <button id="saveLetterBtn">手紙を掲示</button>
+            <button id="deleteLetterBtn" class="secondary">手紙を削除</button>
+        </div>
+    </div>
+
+    <script>
+        const NOSTR_RELAYS = [
+            'wss://relay.damus.io',
+            'wss://nos.lol',
+            'wss://relay.nostr.band'
+        ];
+        const NOSTR_ROOM_TAG = 'modore-melos-board-v1';
+        const NOSTR_MOD_D = 'melos-moderation-v1';
+        const NOSTR_LETTER_D = 'melos-creator-letter-v1';
+
+        const secretInput = document.getElementById('secretInput');
+        const connectBtn = document.getElementById('connectBtn');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const statusEl = document.getElementById('status');
+        const commentList = document.getElementById('commentList');
+        const selectAllBtn = document.getElementById('selectAllBtn');
+        const clearSelectBtn = document.getElementById('clearSelectBtn');
+        const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+        const letterInput = document.getElementById('letterInput');
+        const saveLetterBtn = document.getElementById('saveLetterBtn');
+        const deleteLetterBtn = document.getElementById('deleteLetterBtn');
+
+        const state = {
+            pool: null,
+            seckey: null,
+            pubkey: '',
+            messages: new Map(),
+            selected: new Set(),
+            removedEventIds: new Set(),
+            adminDeletedIds: new Set()
+        };
+
+        function escapeHtml(text) {
+            return String(text)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;');
+        }
+
+        function formatTime(ts) {
+            const d = new Date(ts || Date.now());
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const hh = String(d.getHours()).padStart(2, '0');
+            const mm = String(d.getMinutes()).padStart(2, '0');
+            return `${y}/${m}/${day} ${hh}:${mm}`;
+        }
+
+        function hexToBytes(hex) {
+            const clean = String(hex || '').trim();
+            if (!/^[0-9a-fA-F]{64}$/.test(clean)) return null;
+            const out = new Uint8Array(32);
+            for (let i = 0; i < 32; i++) {
+                out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+            }
+            return out;
+        }
+
+        function renderComments() {
+            const rows = Array.from(state.messages.values())
+                .filter((msg) => !state.removedEventIds.has(msg.id))
+                .sort((a, b) => (b.ts || 0) - (a.ts || 0));
+
+            if (rows.length === 0) {
+                commentList.innerHTML = '<div class="empty">表示できるコメントはありません。</div>';
+                return;
+            }
+
+            commentList.innerHTML = rows.map((msg) => {
+                const checked = state.selected.has(msg.id) ? 'checked' : '';
+                return `
+                    <div class="commentItem">
+                        <label>
+                            <input type="checkbox" data-id="${escapeHtml(msg.id)}" ${checked}>
+                            <span class="meta">[${formatTime(msg.ts)}] ${escapeHtml(msg.name || '名無しメロス')}</span>
+                        </label>
+                        <div>${escapeHtml(msg.text || '')}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function applyDeletedIds(ids) {
+            (ids || []).forEach((id) => {
+                const key = String(id || '').trim();
+                if (!key) return;
+                state.removedEventIds.add(key);
+                state.messages.delete(key);
+                state.selected.delete(key);
+            });
+        }
+
+        function ingestEvent(event) {
+            if (!event || !event.id) return;
+            if (event.kind === 1) {
+                let payload;
+                try {
+                    payload = JSON.parse(event.content || '{}');
+                } catch {
+                    payload = null;
+                }
+                if (!payload || typeof payload.text !== 'string') return;
+                state.messages.set(event.id, {
+                    id: event.id,
+                    name: String(payload.name || '名無しメロス').slice(0, 12),
+                    text: String(payload.text || '').slice(0, 80),
+                    ts: (event.created_at || Math.floor(Date.now() / 1000)) * 1000
+                });
+                return;
+            }
+            if (event.kind === 5) {
+                const ids = [];
+                (event.tags || []).forEach((tag) => {
+                    if (Array.isArray(tag) && tag[0] === 'e' && tag[1]) {
+                        ids.push(tag[1]);
+                    }
+                });
+                applyDeletedIds(ids);
+                return;
+            }
+            if (event.kind === 30078) {
+                const dTag = (event.tags || []).find((tag) => Array.isArray(tag) && tag[0] === 'd');
+                const dValue = dTag && dTag[1] ? dTag[1] : '';
+                if (dValue === NOSTR_MOD_D) {
+                    let payload;
+                    try {
+                        payload = JSON.parse(event.content || '{}');
+                    } catch {
+                        payload = null;
+                    }
+                    if (payload && Array.isArray(payload.deletedIds)) {
+                        payload.deletedIds.forEach((id) => {
+                            const key = String(id || '').trim();
+                            if (key) state.adminDeletedIds.add(key);
+                        });
+                        applyDeletedIds(payload.deletedIds);
+                    }
+                    return;
+                }
+                if (dValue === NOSTR_LETTER_D) {
+                    let payload;
+                    try {
+                        payload = JSON.parse(event.content || '{}');
+                    } catch {
+                        payload = null;
+                    }
+                    letterInput.value = payload && typeof payload.text === 'string' ? payload.text.slice(0, 220) : '';
+                }
+            }
+        }
+
+        async function loadBoardData() {
+            if (!state.pool) return;
+            statusEl.textContent = '読み込み中...';
+            try {
+                state.messages.clear();
+                state.selected.clear();
+                state.removedEventIds.clear();
+                state.adminDeletedIds.clear();
+                const events = await state.pool.list(NOSTR_RELAYS, [{
+                    kinds: [1, 5, 30078],
+                    '#t': [NOSTR_ROOM_TAG],
+                    limit: 280
+                }]);
+                events.forEach(ingestEvent);
+                renderComments();
+                statusEl.textContent = `読み込み完了（${state.messages.size}件）`;
+            } catch (err) {
+                console.warn(err);
+                statusEl.textContent = '読み込みに失敗しました';
+            }
+        }
+
+        function publishEvent(template) {
+            if (!state.pool || !state.seckey) return false;
+            const signed = NostrTools.finalizeEvent(template, state.seckey);
+            state.pool.publish(NOSTR_RELAYS, signed);
+            return true;
+        }
+
+        function publishModerationDelete(ids) {
+            const next = new Set(state.adminDeletedIds);
+            (ids || []).forEach((v) => {
+                const key = String(v || '').trim();
+                if (key) next.add(key);
+            });
+            const unique = Array.from(next);
+            if (unique.length === 0) return;
+            const ok = publishEvent({
+                kind: 30078,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: [
+                    ['d', NOSTR_MOD_D],
+                    ['t', NOSTR_ROOM_TAG]
+                ],
+                content: JSON.stringify({
+                    deletedIds: unique
+                })
+            });
+            if (!ok) return;
+            state.adminDeletedIds = next;
+            applyDeletedIds(unique);
+            renderComments();
+            statusEl.textContent = `${unique.length}件を削除反映しました`;
+        }
+
+        function publishCreatorLetter(text) {
+            const safeText = String(text || '').slice(0, 220);
+            const ok = publishEvent({
+                kind: 30078,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: [
+                    ['d', NOSTR_LETTER_D],
+                    ['t', NOSTR_ROOM_TAG]
+                ],
+                content: JSON.stringify({
+                    text: safeText
+                })
+            });
+            if (!ok) return;
+            statusEl.textContent = safeText ? '手紙を更新しました' : '手紙を削除しました';
+        }
+
+        connectBtn.addEventListener('click', async () => {
+            if (typeof NostrTools === 'undefined') {
+                statusEl.textContent = 'nostr-toolsの読み込みに失敗しました';
+                return;
+            }
+            const sec = hexToBytes(secretInput.value);
+            if (!sec) {
+                statusEl.textContent = '秘密鍵は64桁hexで入力してください';
+                return;
+            }
+            try {
+                state.seckey = sec;
+                state.pubkey = NostrTools.getPublicKey(sec);
+                state.pool = new NostrTools.SimplePool();
+                localStorage.setItem('melos_admin_pubkey', state.pubkey);
+                statusEl.textContent = `接続しました: ${state.pubkey.slice(0, 12)}...`;
+                await loadBoardData();
+            } catch (err) {
+                console.warn(err);
+                statusEl.textContent = '接続に失敗しました';
+            }
+        });
+
+        refreshBtn.addEventListener('click', loadBoardData);
+
+        commentList.addEventListener('change', (e) => {
+            const target = e.target;
+            if (!(target instanceof HTMLInputElement)) return;
+            const id = target.dataset.id || '';
+            if (!id) return;
+            if (target.checked) state.selected.add(id);
+            else state.selected.delete(id);
+        });
+
+        selectAllBtn.addEventListener('click', () => {
+            const ids = Array.from(state.messages.keys()).filter((id) => !state.removedEventIds.has(id));
+            ids.forEach((id) => state.selected.add(id));
+            renderComments();
+        });
+
+        clearSelectBtn.addEventListener('click', () => {
+            state.selected.clear();
+            renderComments();
+        });
+
+        deleteSelectedBtn.addEventListener('click', () => {
+            const ids = Array.from(state.selected);
+            if (ids.length === 0) {
+                statusEl.textContent = '削除対象を選択してください';
+                return;
+            }
+            publishModerationDelete(ids);
+        });
+
+        saveLetterBtn.addEventListener('click', () => {
+            publishCreatorLetter(letterInput.value);
+        });
+
+        deleteLetterBtn.addEventListener('click', () => {
+            letterInput.value = '';
+            publishCreatorLetter('');
+        });
+
+        const cachedSecret = localStorage.getItem('melos_nostr_secret');
+        if (cachedSecret) {
+            secretInput.value = cachedSecret;
+        }
+    </script>
+</body>
+</html>

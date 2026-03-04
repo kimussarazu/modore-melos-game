@@ -168,6 +168,37 @@
             color: #f3f3f3;
         }
 
+        #chatBoardContent {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        #chatMain {
+            flex: 1;
+            min-width: 0;
+        }
+
+        #creatorLetter {
+            width: 150px;
+            min-height: 110px;
+            padding: 8px;
+            background: rgba(245, 236, 200, 0.9);
+            border: 3px solid #7b6b3f;
+            color: #2a1f12;
+            box-shadow: 3px 3px 0 #000;
+            font-size: 0.56em;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        #creatorLetterTitle {
+            font-size: 0.86em;
+            margin-bottom: 5px;
+            color: #593d1f;
+        }
+
         #chatTitle {
             color: #ffd700;
             font-size: 0.66em;
@@ -311,6 +342,13 @@
                 width: 95%;
                 padding: 8px;
             }
+            #chatBoardContent {
+                flex-direction: column;
+            }
+            #creatorLetter {
+                width: 100%;
+                min-height: 74px;
+            }
             #chatMessages {
                 height: 100px;
             }
@@ -368,12 +406,20 @@
             <div id="chatBoard">
                 <div id="chatTitle">歴代メロスの掲示板</div>
                 <div id="chatStatus">接続準備中...</div>
-                <div id="chatMessages"></div>
-                <div id="chatControls">
-                    <input id="chatNameInput" class="chatInput" maxlength="12" placeholder="名前">
-                    <input id="chatInput" class="chatInput" maxlength="80" placeholder="メッセージ（80字まで）">
-                    <button id="chatSendButton">送信</button>
-                    <button id="chatRefreshButton">更新</button>
+                <div id="chatBoardContent">
+                    <div id="chatMain">
+                        <div id="chatMessages"></div>
+                        <div id="chatControls">
+                            <input id="chatNameInput" class="chatInput" maxlength="12" placeholder="名前">
+                            <input id="chatInput" class="chatInput" maxlength="80" placeholder="メッセージ（80字まで）">
+                            <button id="chatSendButton">送信</button>
+                            <button id="chatRefreshButton">更新</button>
+                        </div>
+                    </div>
+                    <div id="creatorLetter">
+                        <div id="creatorLetterTitle">つくりて からの てがみ</div>
+                        <div id="creatorLetterBody">（まだ ありません）</div>
+                    </div>
                 </div>
             </div>
             <button id="startButton">スタート</button>
@@ -423,6 +469,7 @@
         const chatInput = document.getElementById('chatInput');
         const chatSendButton = document.getElementById('chatSendButton');
         const chatRefreshButton = document.getElementById('chatRefreshButton');
+        const creatorLetterBody = document.getElementById('creatorLetterBody');
 
         // Pixel art rendering
         ctx.imageSmoothingEnabled = false;
@@ -533,7 +580,11 @@
             selfId: '',
             lastEnterAt: 0,
             pollingTimer: null,
-            seenEventIds: new Set()
+            seenEventIds: new Set(),
+            removedEventIds: new Set(),
+            deleteClaims: new Map(),
+            creatorLetter: '',
+            adminPubkey: ''
         };
         const NOSTR_RELAYS = [
             'wss://relay.damus.io',
@@ -541,6 +592,9 @@
             'wss://relay.nostr.band'
         ];
         const NOSTR_ROOM_TAG = 'modore-melos-board-v1';
+        const NOSTR_MOD_D = 'melos-moderation-v1';
+        const NOSTR_LETTER_D = 'melos-creator-letter-v1';
+        const ADMIN_PUBKEY_STORAGE_KEY = 'melos_admin_pubkey';
 
         // Player - Red Melos
         const player = {
@@ -872,6 +926,12 @@
             return result;
         }
 
+        function renderCreatorLetter() {
+            if (!creatorLetterBody) return;
+            const text = (chatState.creatorLetter || '').trim();
+            creatorLetterBody.textContent = text || '（まだ ありません）';
+        }
+
         function renderChatMessages() {
             const sorted = Array.from(chatState.messages.values())
                 .sort((a, b) => (a.ts || 0) - (b.ts || 0))
@@ -886,13 +946,28 @@
                 const safeName = escapeHtml(msg.name || '名無しメロス');
                 const safeText = escapeHtml(msg.text || '');
                 const time = formatTime(msg.ts);
-                return `<div class="chatMessage"><span class="chatMeta">[${time}] ${safeName}:</span> ${safeText}</div>`;
+                const canDeleteSelf = !!msg.key && !!chatState.pubkey && msg.authorPubkey === chatState.pubkey;
+                const actions = canDeleteSelf
+                    ? `<span class="chatActions"><button class="chatActionBtn" data-action="delete" data-key="${escapeHtml(msg.key)}">削除</button></span>`
+                    : '';
+                return `<div class="chatMessage"><span class="chatMeta">[${time}] ${safeName}:</span> ${safeText}${actions}</div>`;
             }).join('');
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
+        function hasValidDeleteClaim(messageId, authorPubkey) {
+            const claimers = chatState.deleteClaims.get(messageId);
+            if (!claimers || !authorPubkey) return false;
+            return claimers.has(authorPubkey);
+        }
+
         function ingestChatRecord(data, key) {
             if (!data || !data.text) return;
+            if (hasValidDeleteClaim(key, data.authorPubkey || '')) {
+                chatState.removedEventIds.add(key);
+                return;
+            }
+            if (chatState.removedEventIds.has(key)) return;
             if (chatState.seenEventIds.has(key)) return;
             chatState.seenEventIds.add(key);
             chatState.messages.set(key, { ...data, key });
@@ -903,8 +978,99 @@
             renderChatMessages();
         }
 
+        function applyDeletedIds(ids) {
+            if (!Array.isArray(ids) || ids.length === 0) return;
+            let changed = false;
+            ids.forEach((id) => {
+                const key = String(id || '').trim();
+                if (!key) return;
+                if (!chatState.removedEventIds.has(key)) {
+                    chatState.removedEventIds.add(key);
+                    changed = true;
+                }
+                if (chatState.messages.delete(key)) {
+                    changed = true;
+                }
+            });
+            if (changed) renderChatMessages();
+        }
+
+        function isTrustedAdminEvent(event) {
+            const pub = event && event.pubkey ? String(event.pubkey) : '';
+            if (!pub) return false;
+            if (chatState.adminPubkey) return chatState.adminPubkey === pub;
+            chatState.adminPubkey = pub;
+            localStorage.setItem(ADMIN_PUBKEY_STORAGE_KEY, pub);
+            return true;
+        }
+
+        function ingestModerationEvent(event) {
+            if (!event || !event.id || chatState.seenEventIds.has(event.id)) return;
+            chatState.seenEventIds.add(event.id);
+            if (!isTrustedAdminEvent(event)) return;
+            let payload = null;
+            try {
+                payload = JSON.parse(event.content || '{}');
+            } catch {
+                payload = null;
+            }
+            if (!payload || !Array.isArray(payload.deletedIds)) return;
+            applyDeletedIds(payload.deletedIds);
+        }
+
+        function ingestCreatorLetterEvent(event) {
+            if (!event || !event.id || chatState.seenEventIds.has(event.id)) return;
+            chatState.seenEventIds.add(event.id);
+            if (!isTrustedAdminEvent(event)) return;
+            let payload = null;
+            try {
+                payload = JSON.parse(event.content || '{}');
+            } catch {
+                payload = null;
+            }
+            if (!payload || typeof payload.text !== 'string') return;
+            chatState.creatorLetter = String(payload.text || '').slice(0, 220);
+            renderCreatorLetter();
+        }
+
+        function ingestDeletionEvent(event) {
+            if (!event || !event.id || chatState.seenEventIds.has(event.id)) return;
+            chatState.seenEventIds.add(event.id);
+            const ids = [];
+            (event.tags || []).forEach((tag) => {
+                if (Array.isArray(tag) && tag[0] === 'e' && tag[1]) {
+                    const targetId = tag[1];
+                    const claimers = chatState.deleteClaims.get(targetId) || new Set();
+                    claimers.add(event.pubkey || '');
+                    chatState.deleteClaims.set(targetId, claimers);
+                    const target = chatState.messages.get(targetId);
+                    if (target && target.authorPubkey === event.pubkey) {
+                        ids.push(targetId);
+                    }
+                }
+            });
+            applyDeletedIds(ids);
+        }
+
         function ingestNostrEvent(event) {
             if (!event || !event.id || chatState.seenEventIds.has(event.id)) return;
+            if (event.kind === 5) {
+                ingestDeletionEvent(event);
+                return;
+            }
+            if (event.kind === 30078) {
+                const dTag = (event.tags || []).find((tag) => Array.isArray(tag) && tag[0] === 'd');
+                const dValue = dTag && dTag[1] ? dTag[1] : '';
+                if (dValue === NOSTR_MOD_D) {
+                    ingestModerationEvent(event);
+                    return;
+                }
+                if (dValue === NOSTR_LETTER_D) {
+                    ingestCreatorLetterEvent(event);
+                }
+                return;
+            }
+            if (event.kind !== 1) return;
             let payload;
             try {
                 payload = JSON.parse(event.content || '{}');
@@ -916,6 +1082,7 @@
                 name: String(payload.name || '名無しメロス').slice(0, 12),
                 text: String(payload.text || '').slice(0, 80),
                 uid: payload.uid || '',
+                authorPubkey: event.pubkey || '',
                 ts: (event.created_at || Math.floor(Date.now() / 1000)) * 1000
             }, event.id);
         }
@@ -924,9 +1091,9 @@
             if (!chatState.pool) return;
             try {
                 const events = await chatState.pool.list(NOSTR_RELAYS, [{
-                    kinds: [1],
+                    kinds: [1, 5, 30078],
                     '#t': [NOSTR_ROOM_TAG],
-                    limit: 120
+                    limit: 220
                 }]);
                 events.forEach(ingestNostrEvent);
             } catch (error) {
@@ -953,6 +1120,7 @@
             }
 
             try {
+                chatState.adminPubkey = localStorage.getItem(ADMIN_PUBKEY_STORAGE_KEY) || '';
                 let keyHex = localStorage.getItem('melos_nostr_secret');
                 if (!keyHex) {
                     keyHex = bytesToHex(NostrTools.generateSecretKey());
@@ -963,7 +1131,7 @@
                 chatState.pool = new NostrTools.SimplePool();
                 chatState.pool.subscribeMany(
                     NOSTR_RELAYS,
-                    [{ kinds: [1], '#t': [NOSTR_ROOM_TAG], limit: 120 }],
+                    [{ kinds: [1, 5, 30078], '#t': [NOSTR_ROOM_TAG], limit: 220 }],
                     {
                         onevent(event) {
                             ingestNostrEvent(event);
@@ -1009,11 +1177,32 @@
                 name: name || '名無しメロス',
                 text: text,
                 ts: Date.now(),
-                uid: chatState.selfId
+                uid: chatState.selfId,
+                authorPubkey: chatState.pubkey
             }, signed.id);
             chatState.pool.publish(NOSTR_RELAYS, signed);
             chatInput.value = '';
             chatState.lastEnterAt = 0;
+        }
+
+        function deleteOwnMessage(messageId) {
+            if (!messageId || !chatState.pool || !chatState.seckey) return;
+            const target = chatState.messages.get(messageId);
+            if (!target || target.authorPubkey !== chatState.pubkey) return;
+
+            const deleteTemplate = {
+                kind: 5,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: [
+                    ['t', NOSTR_ROOM_TAG],
+                    ['e', messageId]
+                ],
+                content: ''
+            };
+            const signed = NostrTools.finalizeEvent(deleteTemplate, chatState.seckey);
+            chatState.pool.publish(NOSTR_RELAYS, signed);
+            applyDeletedIds([messageId]);
+            chatStatus.textContent = 'コメントを削除しました';
         }
 
         canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -1042,6 +1231,13 @@
         backToTitleFromGameOver.addEventListener('click', returnToTitle);
         backToTitleFromWin.addEventListener('click', returnToTitle);
         chatSendButton.addEventListener('click', sendChatMessage);
+        chatMessages.addEventListener('click', (e) => {
+            const target = e.target;
+            if (!(target instanceof HTMLElement)) return;
+            if (target.dataset.action !== 'delete') return;
+            const key = target.dataset.key || '';
+            deleteOwnMessage(key);
+        });
         chatRefreshButton.addEventListener('click', () => {
             refreshChatMessages();
             chatStatus.textContent = '掲示板を更新しました';
@@ -1066,6 +1262,7 @@
             await prepareAudio();
             toggleMute();
         });
+        renderCreatorLetter();
 
         async function prepareAudio() {
             if (sound.initialized || sound.failed) return;
