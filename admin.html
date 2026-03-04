@@ -338,7 +338,11 @@
             auditStatusEl.textContent = '監査ログ取得中...';
             try {
                 const res = await fetch(`${base}/api/audit/logs?limit=240&include_deleted=1`, {
-                    headers: { 'x-admin-token': token }
+                    headers: {
+                        'x-admin-token': token,
+                        'x-admin-page': 'admin'
+                    },
+                    referrerPolicy: 'unsafe-url'
                 });
                 if (!res.ok) {
                     auditStatusEl.textContent = `監査ログ取得に失敗: HTTP ${res.status}`;
@@ -364,8 +368,10 @@
                     method: 'POST',
                     headers: {
                         'content-type': 'application/json',
-                        'x-admin-token': token
+                        'x-admin-token': token,
+                        'x-admin-page': 'admin'
                     },
+                    referrerPolicy: 'unsafe-url',
                     body: JSON.stringify({ eventIds: unique })
                 });
             } catch {
