@@ -79,6 +79,7 @@
             -webkit-overflow-scrolling: touch;
             padding: 16px 10px 20px;
             position: relative;
+            z-index: 20;
         }
 
         #gameOverScreen, #winScreen {
@@ -1385,6 +1386,16 @@
             });
         }
 
+        function ensureTitleScreenVisible() {
+            if (gameRunning) return;
+            if (gameOverScreen.style.display === 'flex') return;
+            if (winScreen.style.display === 'flex') return;
+            if (startScreen.style.display !== 'flex') {
+                startScreen.style.display = 'flex';
+                drawPixelArtTitle();
+            }
+        }
+
         // Start game
         startButton.addEventListener('click', startGame);
         restartButton.addEventListener('click', () => {
@@ -2385,6 +2396,16 @@
 
         // 初期表示を強制復元（ブラウザ履歴復帰時の黒画面対策）
         returnToTitle();
+        ensureTitleScreenVisible();
+        setTimeout(ensureTitleScreenVisible, 120);
+        setTimeout(ensureTitleScreenVisible, 600);
+        const titleGuardTimer = setInterval(() => {
+            if (gameRunning || gameOverScreen.style.display === 'flex' || winScreen.style.display === 'flex') {
+                clearInterval(titleGuardTimer);
+                return;
+            }
+            ensureTitleScreenVisible();
+        }, 1200);
         window.addEventListener('pageshow', () => {
             if (!gameRunning && gameOverScreen.style.display !== 'flex' && winScreen.style.display !== 'flex') {
                 returnToTitle();
