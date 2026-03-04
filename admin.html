@@ -96,6 +96,10 @@
             <button id="deleteSelectedBtn">選択を削除</button>
             <button id="purgeAllBtn" class="secondary">取得済みを全削除</button>
         </div>
+        <div class="row" style="margin-bottom:8px;">
+            <input id="directDeleteInput" placeholder="見えないコメントを文字列指定で削除（例: 銀河 GGG!!）">
+            <button id="directDeleteBtn" class="secondary">文字列で検索して削除</button>
+        </div>
         <div id="commentList"><div class="empty">コメントを読み込み中...</div></div>
     </div>
 
@@ -131,6 +135,8 @@
         const clearSelectBtn = document.getElementById('clearSelectBtn');
         const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
         const purgeAllBtn = document.getElementById('purgeAllBtn');
+        const directDeleteInput = document.getElementById('directDeleteInput');
+        const directDeleteBtn = document.getElementById('directDeleteBtn');
         const letterInput = document.getElementById('letterInput');
         const saveLetterBtn = document.getElementById('saveLetterBtn');
         const deleteLetterBtn = document.getElementById('deleteLetterBtn');
@@ -168,6 +174,14 @@
 
         function hasRoomTag(event) {
             return (event.tags || []).some((tag) => Array.isArray(tag) && tag[0] === 't' && tag[1] === NOSTR_ROOM_TAG);
+        }
+
+        function normalizeText(text) {
+            return String(text || '')
+                .toLowerCase()
+                .replace(/\[[0-9]{1,2}:[0-9]{2}\]/g, '')
+                .replace(/\s+/g, '')
+                .trim();
         }
 
         function hexToBytes(hex) {
@@ -438,6 +452,59 @@
             statusEl.textContent = `${unique.length}件を削除反映しました`;
         }
 
+        async function deleteByKeyword() {
+            if (!state.pool) {
+                statusEl.textContent = '先に管理者として接続してください';
+                return;
+            }
+            const raw = (directDeleteInput.value || '').trim();
+            const key = normalizeText(raw);
+            if (key.length < 2) {
+                statusEl.textContent = '検索文字は2文字以上で入力してください';
+                return;
+            }
+            statusEl.textContent = '文字列検索で履歴を確認中...';
+
+            const filtersTagged = [{ kinds: [1], '#t': [NOSTR_ROOM_TAG], limit: 520 }];
+            const filtersWide = [{ kinds: [1], limit: 700 }];
+
+            const tagged = await Promise.all(
+                NOSTR_RELAYS.map((relay) => listFromRelay(relay, filtersTagged, RELAY_TIMEOUT_MS + 1800))
+            );
+            const wide = await Promise.all(
+                NOSTR_RELAYS.map((relay) => listFromRelay(relay, filtersWide, RELAY_TIMEOUT_MS + 1800))
+            );
+
+            const allEvents = [...tagged.flat(), ...wide.flat()];
+            const ids = [];
+            const seen = new Set();
+            allEvents.forEach((event) => {
+                if (!event || !event.id || seen.has(event.id)) return;
+                seen.add(event.id);
+                let payload = null;
+                try {
+                    payload = JSON.parse(event.content || '{}');
+                } catch {
+                    payload = null;
+                }
+                if (!payload || typeof payload.text !== 'string') return;
+                const uid = String(payload.uid || '');
+                if (!hasRoomTag(event) && !uid.startsWith('uid_')) return;
+                const eventTs = (event.created_at || Math.floor(Date.now() / 1000)) * 1000;
+                if (eventTs < BOARD_RESET_TS) return;
+                const candidate = normalizeText(`${payload.name || ''}:${payload.text || ''}`);
+                if (candidate.includes(key)) {
+                    ids.push(event.id);
+                }
+            });
+
+            if (ids.length === 0) {
+                statusEl.textContent = '一致するコメントが見つかりませんでした';
+                return;
+            }
+            publishModerationDelete(ids);
+        }
+
         function publishCreatorLetter(text) {
             const safeText = String(text || '').slice(0, 220);
             state.pendingLetterText = safeText;
@@ -528,6 +595,7 @@
             }
             publishModerationDelete(ids);
         });
+        directDeleteBtn.addEventListener('click', deleteByKeyword);
 
         saveLetterBtn.addEventListener('click', () => {
             publishCreatorLetter(letterInput.value);
