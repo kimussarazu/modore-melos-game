@@ -41,10 +41,16 @@ function isAllowedAdminPage(req, env) {
   const adminPageHeader = req.headers.get('x-admin-page') || '';
   const adminPathHeader = req.headers.get('x-admin-path') || '';
   const allowedOrigin = String(env.ADMIN_ORIGIN || 'https://kimussarazu.github.io');
-  const allowedAdminPath = String(env.ADMIN_PATH || '/modore-melos-game/admin.html');
+  const allowedPathsRaw = String(
+    env.ADMIN_PATHS || `${env.ADMIN_PATH || '/modore-melos-game/admin.html'},/admin.html`
+  );
+  const allowedAdminPaths = allowedPathsRaw
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
   if (adminPageHeader !== 'admin') return false;
   if (origin !== allowedOrigin) return false;
-  if (adminPathHeader !== allowedAdminPath) return false;
+  if (!allowedAdminPaths.includes(adminPathHeader)) return false;
   return true;
 }
 

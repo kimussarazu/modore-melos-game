@@ -41,7 +41,7 @@ wrangler secret put IP_SALT
 `wrangler.toml` の `vars` で、監査ログ取得APIにアクセスできる管理画面を制限しています。
 
 - `ADMIN_ORIGIN`: `https://kimussarazu.github.io`
-- `ADMIN_PATH`: `/modore-melos-game/admin.html`
+- `ADMIN_PATHS`: `/modore-melos-game/admin.html,/admin.html`
 
 `Origin + 管理画面パス + 管理トークン` が一致しないアクセスは `401` を返します。
 
