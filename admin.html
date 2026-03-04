@@ -86,6 +86,44 @@
         }
         .meta { color: #9ecfff; }
         .empty { color: #c6c6c6; }
+        .switchRow {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-top: 6px;
+            color: #cfd9ff;
+            font-size: 0.9rem;
+        }
+        .switchRow input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: #2f5ea8;
+        }
+        @media (max-width: 820px) {
+            body {
+                padding: 10px;
+                font-size: 15px;
+            }
+            .panel {
+                padding: 10px;
+                border-width: 2px;
+                box-shadow: 2px 2px 0 #000;
+            }
+            .row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            input, textarea, button {
+                width: 100%;
+                min-width: 0;
+            }
+            button {
+                min-height: 44px;
+            }
+            #commentList, #auditList {
+                max-height: 300px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -97,6 +135,10 @@
             <button id="refreshBtn" class="secondary">再読み込み</button>
         </div>
         <div style="font-size:0.9rem; color:#d2d2d2; margin-top:6px;">※ 「管理者として接続」は、秘密鍵で管理者認証して削除・手紙更新を有効化します。</div>
+        <div class="switchRow">
+            <input type="checkbox" id="autoRefreshToggle" checked>
+            <label for="autoRefreshToggle">自動更新（15秒ごと）</label>
+        </div>
         <div id="status">未接続</div>
         <div id="liveStatus" style="font-size:0.86rem; color:#9ecfff;">リアルタイム: 未接続</div>
     </div>
@@ -170,6 +212,7 @@
         const refreshBtn = document.getElementById('refreshBtn');
         const statusEl = document.getElementById('status');
         const liveStatusEl = document.getElementById('liveStatus');
+        const autoRefreshToggle = document.getElementById('autoRefreshToggle');
         const lockOnBtn = document.getElementById('lockOnBtn');
         const lockOffBtn = document.getElementById('lockOffBtn');
         const lockStatusEl = document.getElementById('lockStatus');
@@ -204,8 +247,11 @@
             liveSub: null,
             siteLocked: false,
             siteLockTs: 0,
-            auditLogs: []
+            auditLogs: [],
+            autoRefreshTimer: null,
+            autoRefreshBusy: false
         };
+        const AUTO_REFRESH_MS = 15000;
 
         function escapeHtml(text) {
             return String(text)
@@ -393,6 +439,33 @@
             } catch {
                 // 監査連携失敗は管理操作自体は続行
             }
+        }
+
+        function stopAutoRefresh() {
+            if (state.autoRefreshTimer) {
+                clearInterval(state.autoRefreshTimer);
+                state.autoRefreshTimer = null;
+            }
+        }
+
+        function startAutoRefresh() {
+            stopAutoRefresh();
+            if (!autoRefreshToggle.checked) return;
+            state.autoRefreshTimer = setInterval(async () => {
+                if (state.autoRefreshBusy) return;
+                state.autoRefreshBusy = true;
+                try {
+                    if (state.pool) {
+                        await loadBoardData();
+                    }
+                    if (getAuditApiBase() && getAuditToken()) {
+                        await loadAuditLogs();
+                    }
+                    liveStatusEl.textContent = `リアルタイム: 自動更新中（${Math.floor(AUTO_REFRESH_MS / 1000)}秒）`;
+                } finally {
+                    state.autoRefreshBusy = false;
+                }
+            }, AUTO_REFRESH_MS);
         }
 
         function hexToBytes(hex) {
@@ -845,6 +918,7 @@
                 await loadBoardData();
                 startRealtimeSync();
                 await loadAuditLogs();
+                startAutoRefresh();
             } catch (err) {
                 console.warn(err);
                 statusEl.textContent = '接続に失敗しました';
@@ -905,6 +979,10 @@
         lockOffBtn.addEventListener('click', () => publishSiteLock(false));
         loadAuditBtn.addEventListener('click', loadAuditLogs);
         saveAuditConfigBtn.addEventListener('click', saveAuditConfig);
+        autoRefreshToggle.addEventListener('change', () => {
+            if (autoRefreshToggle.checked) startAutoRefresh();
+            else stopAutoRefresh();
+        });
 
         const cachedSecret = localStorage.getItem('melos_nostr_secret');
         if (cachedSecret) {
@@ -914,6 +992,7 @@
         auditTokenInput.value = localStorage.getItem(AUDIT_ADMIN_TOKEN_KEY) || '';
         renderAuditLogs();
         renderSiteLockStatus();
+        startAutoRefresh();
     </script>
 </body>
 </html>
