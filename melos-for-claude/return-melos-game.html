@@ -1,0 +1,1882 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>戻れメロス - 帰宅ランゲーム</title>
+    <style>
+        @font-face {
+            font-family: 'PixelMplus12';
+            src: url('./PixelMplus12-Regular.ttf') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+            font-display: swap;
+        }
+
+        @font-face {
+            font-family: 'PixelMplus12';
+            src: url('./PixelMplus12-Bold.ttf') format('truetype');
+            font-weight: bold;
+            font-style: normal;
+            font-display: swap;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'PixelMplus12', 'Press Start 2P', monospace;
+            font-size: 18px;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            touch-action: none;
+            overflow: hidden;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #gameContainer {
+            position: relative;
+            max-width: 800px;
+            width: 100%;
+            height: 600px;
+            background: #000;
+            border: 8px solid #444;
+            overflow: hidden;
+            box-shadow: 0 0 40px rgba(100, 100, 255, 0.5);
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #startScreen, #gameOverScreen, #winScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            z-index: 10;
+        }
+
+        #startScreen {
+            background: #2c1810;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: 16px 10px 20px;
+        }
+
+        #gameOverScreen, #winScreen {
+            display: none;
+            background: rgba(0, 0, 0, 0.9);
+        }
+
+        h1 {
+            font-size: 2em;
+            margin-bottom: 40px;
+            text-shadow: 4px 4px 0px #000;
+            color: #ffd700;
+            letter-spacing: 2px;
+        }
+
+        h2 {
+            font-size: 1.5em;
+            margin-bottom: 30px;
+            color: #ff4444;
+        }
+
+        button {
+            font-family: 'PixelMplus12', 'Press Start 2P', monospace;
+            font-size: 1em;
+            padding: 15px 30px;
+            background: #e1452d;
+            color: white;
+            border: 4px solid #000;
+            cursor: pointer;
+            margin: 10px;
+            box-shadow: 6px 6px 0px #000;
+            transition: all 0.1s;
+        }
+
+        button:hover {
+            background: #ff5544;
+        }
+
+        button:active {
+            transform: translate(3px, 3px);
+            box-shadow: 3px 3px 0px #000;
+        }
+
+        #score {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            font-size: 0.92em;
+            color: #ffd700;
+            text-shadow: 2px 2px 0px #000;
+            z-index: 5;
+            font-family: 'PixelMplus12', 'Press Start 2P', monospace;
+        }
+
+        #muteButton {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            z-index: 6;
+            font-size: 0.6em;
+            padding: 10px 12px;
+            margin: 0;
+            background: #2c2c2c;
+            border-width: 3px;
+            box-shadow: 4px 4px 0px #000;
+        }
+
+        #muteButton:hover {
+            background: #3a3a3a;
+        }
+
+        #instructions {
+            font-size: 0.78em;
+            margin: 30px;
+            text-align: center;
+            max-width: 600px;
+            line-height: 2;
+            color: #ddd;
+        }
+
+        #chatBoard {
+            width: min(92%, 680px);
+            margin: 8px 0 14px;
+            background: rgba(0, 0, 0, 0.55);
+            border: 4px solid #3c3c3c;
+            box-shadow: 4px 4px 0 #000;
+            padding: 10px;
+            color: #f3f3f3;
+        }
+
+        #chatTitle {
+            color: #ffd700;
+            font-size: 0.66em;
+            margin-bottom: 8px;
+        }
+
+        #chatStatus {
+            color: #b8e986;
+            font-size: 0.56em;
+            margin-bottom: 6px;
+            min-height: 10px;
+        }
+
+        #chatMessages {
+            height: 120px;
+            overflow-y: auto;
+            background: rgba(20, 20, 20, 0.8);
+            border: 2px solid #202020;
+            padding: 6px;
+            font-size: 0.68em;
+            line-height: 1.5;
+            margin-bottom: 8px;
+            word-break: break-word;
+        }
+
+        .chatMessage {
+            margin-bottom: 4px;
+            color: #f5f5f5;
+        }
+
+        .chatMeta {
+            color: #9ecfff;
+        }
+
+        .chatActions {
+            margin-left: 6px;
+        }
+
+        .chatActionBtn {
+            font-family: 'PixelMplus12', 'Press Start 2P', monospace;
+            font-size: 0.48em;
+            padding: 3px 5px;
+            margin-left: 4px;
+            background: #2f2f2f;
+            color: #fff;
+            border: 1px solid #000;
+            cursor: pointer;
+        }
+
+        #chatControls {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .chatInput {
+            font-family: 'PixelMplus12', 'Press Start 2P', monospace;
+            border: 2px solid #2b2b2b;
+            background: #141414;
+            color: #fff;
+            padding: 6px;
+            font-size: 0.75em;
+            outline: none;
+        }
+
+        #chatNameInput {
+            width: 120px;
+        }
+
+        #chatInput {
+            flex: 1;
+            min-width: 180px;
+        }
+
+        #chatSendButton {
+            font-size: 0.58em;
+            padding: 8px 10px;
+            margin: 0;
+            border-width: 2px;
+            box-shadow: 2px 2px 0 #000;
+            background: #2f5ea8;
+        }
+
+        #difficultySelector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0 0 14px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .difficultyLabel {
+            font-size: 0.66em;
+            color: #ffd700;
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        .difficultyBtn {
+            font-size: 0.62em;
+            padding: 8px 10px;
+            margin: 0;
+            border-width: 3px;
+            box-shadow: 3px 3px 0 #000;
+            background: #2c2c2c;
+        }
+
+        .difficultyBtn.active {
+            background: #e1452d;
+        }
+
+        #pixelArt {
+            margin: 30px 0;
+            width: 300px;
+            height: 200px;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 1.2em;
+            }
+            button {
+                font-size: 0.8em;
+                padding: 12px 25px;
+            }
+            #instructions {
+                font-size: 0.6em;
+                margin: 20px;
+            }
+            #chatBoard {
+                width: 95%;
+                padding: 8px;
+            }
+            #chatMessages {
+                height: 100px;
+            }
+            #chatNameInput {
+                width: 100px;
+            }
+            #chatInput {
+                min-width: 120px;
+            }
+            #difficultySelector {
+                margin-bottom: 10px;
+                gap: 6px;
+            }
+            #pixelArt {
+                width: 200px;
+                height: 130px;
+            }
+            #gameContainer {
+                height: min(600px, calc(100vh - 10px));
+            }
+            #startScreen {
+                justify-content: flex-start;
+                padding-top: 10px;
+                padding-bottom: 28px;
+            }
+            #muteButton {
+                font-size: 0.55em;
+                padding: 8px 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="score">残り: 0m</div>
+        <button id="muteButton">SOUND: ON</button>
+        
+        <div id="startScreen">
+            <canvas id="pixelArt" width="300" height="200"></canvas>
+            <h1>戻れメロス</h1>
+            <div id="instructions">
+                メロスは家に帰らなければならない<br><br>
+                PC: スペースでジャンプ（2段まで）<br>
+                スマホ: 画面タップでジャンプ（2段まで）<br>
+                長押しでジャンプが少しだけ伸びる<br>
+                障害物を避けながら家へ急げ！
+            </div>
+            <div id="difficultySelector">
+                <span class="difficultyLabel">難易度</span>
+                <button id="easyButton" class="difficultyBtn">EASY</button>
+                <button id="normalButton" class="difficultyBtn active">NORMAL</button>
+                <button id="hardButton" class="difficultyBtn">HARD</button>
+            </div>
+            <div id="chatBoard">
+                <div id="chatTitle">歴代メロスの掲示板</div>
+                <div id="chatStatus">接続準備中...</div>
+                <div id="chatMessages"></div>
+                <div id="chatControls">
+                    <input id="chatNameInput" class="chatInput" maxlength="12" placeholder="名前">
+                    <input id="chatInput" class="chatInput" maxlength="80" placeholder="メッセージ（80字まで）">
+                    <button id="chatSendButton">送信</button>
+                </div>
+            </div>
+            <button id="startButton">スタート</button>
+        </div>
+
+        <div id="gameOverScreen">
+            <h2>ゲームオーバー</h2>
+            <div id="finalScore"></div>
+            <button id="restartButton">もう一度</button>
+            <button id="backToTitleFromGameOver">タイトルへ</button>
+        </div>
+
+        <div id="winScreen">
+            <h2 style="color: #ffd700;">おめでとう！</h2>
+            <div id="winMessage"></div>
+            <button id="winRestartButton">もう一度</button>
+            <button id="backToTitleFromWin">タイトルへ</button>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/tone@14.7.77/build/Tone.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const pixelArtCanvas = document.getElementById('pixelArt');
+        const pixelCtx = pixelArtCanvas.getContext('2d');
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const winScreen = document.getElementById('winScreen');
+        const startButton = document.getElementById('startButton');
+        const restartButton = document.getElementById('restartButton');
+        const winRestartButton = document.getElementById('winRestartButton');
+        const backToTitleFromGameOver = document.getElementById('backToTitleFromGameOver');
+        const backToTitleFromWin = document.getElementById('backToTitleFromWin');
+        const scoreDisplay = document.getElementById('score');
+        const finalScoreDisplay = document.getElementById('finalScore');
+        const winMessage = document.getElementById('winMessage');
+        const muteButton = document.getElementById('muteButton');
+        const easyButton = document.getElementById('easyButton');
+        const normalButton = document.getElementById('normalButton');
+        const hardButton = document.getElementById('hardButton');
+        const chatStatus = document.getElementById('chatStatus');
+        const chatMessages = document.getElementById('chatMessages');
+        const chatNameInput = document.getElementById('chatNameInput');
+        const chatInput = document.getElementById('chatInput');
+        const chatSendButton = document.getElementById('chatSendButton');
+
+        // Pixel art rendering
+        ctx.imageSmoothingEnabled = false;
+        pixelCtx.imageSmoothingEnabled = false;
+
+        // Canvas size
+        canvas.width = 800;
+        canvas.height = 600;
+
+        // Game state
+        let gameRunning = false;
+        let score = 0;
+        let distance = 0;
+        let gameSpeed = 4;
+        let frameCount = 0;
+        const GOAL_DISTANCE_METERS = 1500;
+        const PIXELS_PER_METER = 4;
+        const HOME_START_X = -(GOAL_DISTANCE_METERS * PIXELS_PER_METER);
+        let terrainScroll = 0;
+        let jumpHeld = false;
+        const BASE_GROUND_Y = canvas.height - 120;
+        const CHASER_WARNING_LEAD = 64;
+        let pendingChaserWave = null;
+        let chaserWarningTimer = 0;
+        let deathCause = '';
+        let kingSpawned = false;
+        let selectedDifficulty = 'normal';
+        let currentDifficulty = null;
+        const DIFFICULTIES = {
+            easy: {
+                label: 'EASY',
+                startSpeed: 3.5,
+                obstacleSpawnInterval: 100,
+                archerFireInterval: 120,
+                projectileSpeedBonus: 2.2,
+                speedRampInterval: 750,
+                maxSpeed: 7.2
+            },
+            normal: {
+                label: 'NORMAL',
+                startSpeed: 4,
+                obstacleSpawnInterval: 80,
+                archerFireInterval: 90,
+                projectileSpeedBonus: 3,
+                speedRampInterval: 600,
+                maxSpeed: 8
+            },
+            hard: {
+                label: 'HARD',
+                startSpeed: 4.6,
+                obstacleSpawnInterval: 65,
+                archerFireInterval: 70,
+                projectileSpeedBonus: 3.6,
+                chaserSpawnInterval: 300,
+                chaserSpeedBonus: 0.75,
+                speedRampInterval: 520,
+                maxSpeed: 8.8
+            }
+        };
+        DIFFICULTIES.easy.chaserSpawnInterval = 500;
+        DIFFICULTIES.easy.chaserSpeedBonus = 0.2;
+        DIFFICULTIES.normal.chaserSpawnInterval = 390;
+        DIFFICULTIES.normal.chaserSpeedBonus = 0.45;
+
+        // サウンド管理（8bit風）
+        const sound = {
+            initialized: false,
+            failed: false,
+            muted: false,
+            leadSynth: null,
+            bassSynth: null,
+            jumpSynth: null,
+            hitSynth: null,
+            goalSynth: null,
+            loop: null,
+            step: 0
+        };
+
+        // タイトル画面のリアルタイム掲示板
+        const chatState = {
+            initialized: false,
+            gun: null,
+            room: null,
+            messages: new Map(),
+            maxMessages: 80,
+            selfId: '',
+            lastEnterAt: 0
+        };
+
+        // Player - Red Melos
+        const player = {
+            x: 540,
+            y: 300,
+            width: 32,
+            height: 40,
+            velocityY: 0,
+            gravity: 0.6,
+            jumpPower: -12.2,
+            grounded: false,
+            jumpsUsed: 0,
+            maxJumps: 2,
+            jumpHoldFrames: 0,
+            maxJumpHoldFrames: 11,
+            coyoteFrames: 0,
+            maxCoyoteFrames: 7,
+            jumpBufferFrames: 0,
+            maxJumpBufferFrames: 8
+        };
+
+        // Obstacles
+        const obstacles = [];
+        const projectiles = [];
+        const chasers = [];
+        const KING_BOSS = { name: 'king', width: 44, height: 60 };
+        const obstacleTypes = [
+            { name: 'soldier', width: 28, height: 44 },
+            { name: 'villager', width: 24, height: 40 },
+            { name: 'rock', width: 40, height: 32 },
+            { name: 'tree', width: 36, height: 56 },
+            { name: 'archer', width: 30, height: 44 }
+        ];
+
+        // Home (Goal)
+        const home = {
+            x: HOME_START_X,
+            width: 104,
+            height: 126
+        };
+
+        // Background elements
+        const clouds = [];
+        for (let i = 0; i < 5; i++) {
+            clouds.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * 150 + 20,
+                width: 60 + Math.random() * 40,
+                speed: 0.3 + Math.random() * 0.3
+            });
+        }
+
+        // Stars for pixel art title screen
+        const stars = [];
+        for (let i = 0; i < 30; i++) {
+            stars.push({
+                x: Math.random() * pixelArtCanvas.width,
+                y: Math.random() * pixelArtCanvas.height,
+                size: Math.random() * 3 + 1
+            });
+        }
+
+        // Draw pixel art title screen (MOTHER-inspired)
+        function drawPixelArtTitle() {
+            // Night sky background
+            const gradient = pixelCtx.createLinearGradient(0, 0, 0, pixelArtCanvas.height);
+            gradient.addColorStop(0, '#0a0a2e');
+            gradient.addColorStop(0.5, '#1a1a4e');
+            gradient.addColorStop(1, '#2c1810');
+            pixelCtx.fillStyle = gradient;
+            pixelCtx.fillRect(0, 0, pixelArtCanvas.width, pixelArtCanvas.height);
+
+            // Twinkling stars
+            stars.forEach(star => {
+                const brightness = Math.sin(Date.now() * 0.002 + star.x) * 0.5 + 0.5;
+                pixelCtx.fillStyle = `rgba(255, 255, 200, ${brightness})`;
+                pixelCtx.fillRect(star.x, star.y, star.size, star.size);
+            });
+
+            // Ground
+            pixelCtx.fillStyle = '#1a5f1a';
+            pixelCtx.fillRect(0, 140, pixelArtCanvas.width, 60);
+
+            // Path
+            pixelCtx.fillStyle = '#8b7355';
+            for (let i = 0; i < 300; i += 8) {
+                pixelCtx.fillRect(i, 160, 6, 4);
+            }
+
+            // Home (left side)
+            drawPixelHome(30, 100, 2);
+
+            // Melos running (right side)
+            drawPixelMelos(240, 140, 3);
+
+            // Distance indicator
+            pixelCtx.fillStyle = '#ffd700';
+            pixelCtx.font = '12px "PixelMplus12", "Press Start 2P", monospace';
+            pixelCtx.fillText(`<<< ${GOAL_DISTANCE_METERS}m >>>`, 84, 180);
+        }
+
+        function drawPixelHome(x, y, scale) {
+            const s = scale;
+            // Roof
+            pixelCtx.fillStyle = '#8b4513';
+            pixelCtx.fillRect(x, y, 20*s, 4*s);
+            pixelCtx.fillRect(x-2*s, y+4*s, 24*s, 4*s);
+            
+            // Walls
+            pixelCtx.fillStyle = '#d4a574';
+            pixelCtx.fillRect(x, y+8*s, 20*s, 12*s);
+            
+            // Door
+            pixelCtx.fillStyle = '#654321';
+            pixelCtx.fillRect(x+6*s, y+12*s, 8*s, 8*s);
+            
+            // Window
+            pixelCtx.fillStyle = '#87ceeb';
+            pixelCtx.fillRect(x+2*s, y+10*s, 4*s, 4*s);
+            
+            // Chimney
+            pixelCtx.fillStyle = '#8b4513';
+            pixelCtx.fillRect(x+14*s, y-4*s, 4*s, 8*s);
+        }
+
+        function drawPixelMelos(x, y, scale) {
+            const s = scale;
+            // Body
+            pixelCtx.fillStyle = '#e1452d';
+            pixelCtx.fillRect(x, y, 6*s, 10*s);
+            
+            // Head
+            pixelCtx.fillStyle = '#ffdbac';
+            pixelCtx.fillRect(x+s, y-4*s, 4*s, 4*s);
+            
+            // Eyes
+            pixelCtx.fillStyle = '#000';
+            pixelCtx.fillRect(x+2*s, y-3*s, s, s);
+            pixelCtx.fillRect(x+4*s, y-3*s, s, s);
+            
+            // Legs (running pose)
+            pixelCtx.fillStyle = '#e1452d';
+            pixelCtx.fillRect(x+s, y+10*s, 2*s, 4*s);
+            pixelCtx.fillRect(x+4*s, y+12*s, 2*s, 2*s);
+        }
+
+        // Input handling
+        function jump() {
+            if (!gameRunning) return;
+            if (player.jumpsUsed >= player.maxJumps) return;
+            if (player.jumpsUsed === 0 && !player.grounded && player.coyoteFrames <= 0) return;
+            player.velocityY = player.jumpPower;
+            player.jumpsUsed++;
+            player.jumpHoldFrames = 0;
+            player.jumpBufferFrames = 0;
+            player.coyoteFrames = 0;
+            playJumpSfx();
+        }
+
+        function requestJump() {
+            const before = player.jumpsUsed;
+            jump();
+            if (before === player.jumpsUsed) {
+                player.jumpBufferFrames = player.maxJumpBufferFrames;
+            }
+        }
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (!jumpHeld) requestJump();
+            jumpHeld = true;
+        }, { passive: false });
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            jumpHeld = false;
+        }, { passive: false });
+        canvas.addEventListener('touchcancel', () => {
+            jumpHeld = false;
+        });
+
+        function releaseJump() {
+            jumpHeld = false;
+        }
+
+        // PC向け: スペースでジャンプ
+        window.addEventListener('keydown', (e) => {
+            if (e.code !== 'Space') return;
+            e.preventDefault();
+            if (!jumpHeld && !e.repeat) {
+                requestJump();
+            }
+            jumpHeld = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.code !== 'Space') return;
+            e.preventDefault();
+            releaseJump();
+        });
+        window.addEventListener('blur', releaseJump);
+
+        function getGroundLevelAt(screenX) {
+            const worldX = screenX - terrainScroll;
+            const waveA = Math.sin(worldX * 0.006) * 20;
+            const waveB = Math.sin(worldX * 0.017 + 1.3) * 12;
+            const stepped = Math.round((waveA + waveB) / 4) * 4;
+            const offset = Math.max(-40, Math.min(44, stepped));
+            return BASE_GROUND_Y + offset;
+        }
+
+        function drawTerrain() {
+            // ピクセル感を維持するため8pxごとの段差で描画
+            for (let x = 0; x < canvas.width; x += 8) {
+                const groundY = getGroundLevelAt(x);
+
+                // 草地
+                ctx.fillStyle = '#6ba353';
+                ctx.fillRect(x, 0, 8, groundY);
+
+                // 地面の濃淡
+                ctx.fillStyle = (Math.floor((x - terrainScroll) / 32) % 2 === 0) ? '#5a9345' : '#6ba353';
+                ctx.fillRect(x, groundY - 18, 8, 18);
+
+                // 土
+                ctx.fillStyle = '#8b7355';
+                ctx.fillRect(x, groundY, 8, canvas.height - groundY);
+            }
+
+            // 土テクスチャ（決定的パターンでちらつき防止）
+            for (let x = 0; x < canvas.width; x += 16) {
+                const groundY = getGroundLevelAt(x);
+                for (let y = groundY + 8; y < canvas.height; y += 16) {
+                    const worldCellX = Math.floor((x - terrainScroll) / 16);
+                    const cellY = Math.floor(y / 16);
+                    if ((worldCellX + cellY) % 5 === 0) {
+                        ctx.fillStyle = '#7a6449';
+                        ctx.fillRect(x, y, 8, 8);
+                    }
+                }
+            }
+        }
+
+        function spawnChaserWave(burstCount) {
+            for (let j = 0; j < burstCount; j++) {
+                const startX = canvas.width + 92 + j * 64 + Math.random() * 24;
+                const riderHeight = 34;
+                const groundY = getGroundLevelAt(startX + 24);
+                chasers.push({
+                    x: startX,
+                    y: groundY - riderHeight,
+                    width: 52,
+                    height: riderHeight,
+                    speed: 1.22 + Math.random() * 0.45 + currentDifficulty.chaserSpeedBonus
+                });
+            }
+        }
+
+        function returnToTitle() {
+            gameRunning = false;
+            jumpHeld = false;
+            stopBgm();
+            gameOverScreen.style.display = 'none';
+            winScreen.style.display = 'none';
+            startScreen.style.display = 'flex';
+            startScreen.scrollTop = 0;
+            scoreDisplay.textContent = `残り: ${GOAL_DISTANCE_METERS}m [${DIFFICULTIES[selectedDifficulty].label}]`;
+            drawPixelArtTitle();
+        }
+
+        function setDeathCauseByObstacle(obstacle) {
+            if (obstacle.boss || obstacle.type.name === 'king') {
+                deathCause = '王の裁きに倒れた';
+                return;
+            }
+            switch (obstacle.type.name) {
+                case 'soldier':
+                    deathCause = '兵士に斬られた';
+                    break;
+                case 'villager':
+                    deathCause = '村人に行く手を阻まれた';
+                    break;
+                case 'rock':
+                    deathCause = '岩に激突した';
+                    break;
+                case 'tree':
+                    deathCause = '木に衝突した';
+                    break;
+                case 'archer':
+                    deathCause = '弓兵に接近戦で倒された';
+                    break;
+                default:
+                    deathCause = '障害物に衝突した';
+            }
+        }
+
+        function escapeHtml(text) {
+            return String(text)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;');
+        }
+
+        function formatTime(ts) {
+            const date = new Date(ts || Date.now());
+            const hh = String(date.getHours()).padStart(2, '0');
+            const mm = String(date.getMinutes()).padStart(2, '0');
+            return `${hh}:${mm}`;
+        }
+
+        function renderChatMessages() {
+            const sorted = Array.from(chatState.messages.values())
+                .sort((a, b) => (a.ts || 0) - (b.ts || 0))
+                .slice(-50);
+
+            if (sorted.length === 0) {
+                chatMessages.innerHTML = '<div class="chatMessage">まだ投稿がありません。</div>';
+                return;
+            }
+
+            chatMessages.innerHTML = sorted.map(msg => {
+                const canManage = msg.uid && msg.uid === chatState.selfId;
+                const safeName = escapeHtml(msg.name || '名無しメロス');
+                const safeText = escapeHtml(msg.text || '');
+                const time = formatTime(msg.ts);
+                const actions = canManage
+                    ? `<span class="chatActions"><button class="chatActionBtn" data-action="delete" data-key="${msg.key}">削除</button></span>`
+                    : '';
+                return `<div class="chatMessage"><span class="chatMeta">[${time}] ${safeName}:</span> ${safeText}${actions}</div>`;
+            }).join('');
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function initRealtimeChat() {
+            if (chatState.initialized) return;
+            chatState.initialized = true;
+
+            const savedName = localStorage.getItem('melos_chat_name');
+            if (savedName) chatNameInput.value = savedName;
+            let savedId = localStorage.getItem('melos_chat_uid');
+            if (!savedId) {
+                savedId = `uid_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
+                localStorage.setItem('melos_chat_uid', savedId);
+            }
+            chatState.selfId = savedId;
+
+            if (typeof Gun === 'undefined') {
+                chatStatus.textContent = '掲示板接続に失敗しました（オフライン）';
+                return;
+            }
+
+            try {
+                chatState.gun = Gun({
+                    peers: [
+                        'https://gun-manhattan.herokuapp.com/gun',
+                        'https://gun-us.herokuapp.com/gun'
+                    ]
+                });
+                chatState.room = chatState.gun.get('return-melos-board-v1').get('lobby');
+                chatState.room.map().on((data, key) => {
+                    if (!data) return;
+                    if (data.deleted) {
+                        chatState.messages.delete(key);
+                        renderChatMessages();
+                        return;
+                    }
+                    if (!data.text || typeof data.text !== 'string') return;
+                    chatState.messages.set(key, { ...data, key });
+                    if (chatState.messages.size > chatState.maxMessages) {
+                        const oldestKey = chatState.messages.keys().next().value;
+                        chatState.messages.delete(oldestKey);
+                    }
+                    renderChatMessages();
+                });
+                chatStatus.textContent = '掲示板オンライン: リアルタイム同期中';
+            } catch (error) {
+                console.warn('Chat initialization failed:', error);
+                chatStatus.textContent = '掲示板接続に失敗しました';
+            }
+        }
+
+        function sendChatMessage() {
+            const name = (chatNameInput.value || '名無しメロス').trim().slice(0, 12);
+            const text = (chatInput.value || '').trim().slice(0, 80);
+            if (!text) return;
+
+            localStorage.setItem('melos_chat_name', name);
+            if (!chatState.room) {
+                chatStatus.textContent = '掲示板未接続のため送信できません';
+                return;
+            }
+
+            const id = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+            chatState.room.get(id).put({
+                name: name || '名無しメロス',
+                text: text,
+                ts: Date.now(),
+                uid: chatState.selfId
+            });
+            chatInput.value = '';
+            chatState.lastEnterAt = 0;
+        }
+
+        function deleteChatMessage(key) {
+            const msg = chatState.messages.get(key);
+            if (!msg || msg.uid !== chatState.selfId) return;
+            chatState.room.get(key).put({
+                deleted: true,
+                ts: msg.ts,
+                uid: msg.uid
+            });
+        }
+
+        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+        
+        easyButton.addEventListener('click', () => setDifficulty('easy'));
+        normalButton.addEventListener('click', () => setDifficulty('normal'));
+        hardButton.addEventListener('click', () => setDifficulty('hard'));
+
+        function setDifficulty(level) {
+            selectedDifficulty = level;
+            easyButton.classList.toggle('active', level === 'easy');
+            normalButton.classList.toggle('active', level === 'normal');
+            hardButton.classList.toggle('active', level === 'hard');
+        }
+
+        // Start game
+        startButton.addEventListener('click', startGame);
+        restartButton.addEventListener('click', () => {
+            gameOverScreen.style.display = 'none';
+            startGame();
+        });
+        winRestartButton.addEventListener('click', () => {
+            winScreen.style.display = 'none';
+            startGame();
+        });
+        backToTitleFromGameOver.addEventListener('click', returnToTitle);
+        backToTitleFromWin.addEventListener('click', returnToTitle);
+        chatSendButton.addEventListener('click', sendChatMessage);
+        chatMessages.addEventListener('click', (e) => {
+            const target = e.target;
+            if (!(target instanceof HTMLElement)) return;
+            const action = target.dataset.action;
+            const key = target.dataset.key;
+            if (!action || !key) return;
+            if (action === 'delete') deleteChatMessage(key);
+        });
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            const isDesktop = window.matchMedia('(pointer:fine)').matches;
+            if (!isDesktop) {
+                sendChatMessage();
+                return;
+            }
+            const now = Date.now();
+            if (now - chatState.lastEnterAt <= 900) {
+                sendChatMessage();
+                return;
+            }
+            chatState.lastEnterAt = now;
+            chatStatus.textContent = 'もう一度Enterで送信';
+        });
+        muteButton.addEventListener('click', async () => {
+            await prepareAudio();
+            toggleMute();
+        });
+
+        async function prepareAudio() {
+            if (sound.initialized || sound.failed) return;
+            if (typeof Tone === 'undefined') {
+                sound.failed = true;
+                return;
+            }
+            try {
+                await Tone.start();
+                Tone.Transport.bpm.value = 138;
+
+                sound.leadSynth = new Tone.Synth({
+                    oscillator: { type: 'square' },
+                    envelope: { attack: 0.01, decay: 0.08, sustain: 0.2, release: 0.08 }
+                }).toDestination();
+
+                sound.bassSynth = new Tone.Synth({
+                    oscillator: { type: 'square' },
+                    envelope: { attack: 0.01, decay: 0.12, sustain: 0.35, release: 0.12 }
+                }).toDestination();
+
+                sound.jumpSynth = new Tone.Synth({
+                    oscillator: { type: 'square' },
+                    envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.02 }
+                }).toDestination();
+
+                sound.hitSynth = new Tone.NoiseSynth({
+                    noise: { type: 'pink' },
+                    envelope: { attack: 0.001, decay: 0.12, sustain: 0, release: 0.06 }
+                }).toDestination();
+
+                sound.goalSynth = new Tone.PolySynth(Tone.Synth, {
+                    oscillator: { type: 'square' },
+                    envelope: { attack: 0.01, decay: 0.2, sustain: 0.3, release: 0.2 }
+                }).toDestination();
+
+                // A♭ホールトーン（Ab, Bb, C, D, E, F#）中心の8bitループ
+                const leadPattern = ['G#5', 'A#5', 'C6', 'D6', 'E6', 'F#6', 'D6', 'C6'];
+                const bassPattern = ['G#2', null, 'C3', null, 'D3', null, 'F#2', null];
+
+                sound.loop = new Tone.Loop((time) => {
+                    const index = sound.step % leadPattern.length;
+                    const leadNote = leadPattern[index];
+                    const bassNote = bassPattern[index];
+                    if (leadNote) sound.leadSynth.triggerAttackRelease(leadNote, '16n', time, 0.18);
+                    if (bassNote) sound.bassSynth.triggerAttackRelease(bassNote, '8n', time, 0.15);
+                    sound.step++;
+                }, '8n');
+
+                sound.initialized = true;
+                updateMuteButton();
+            } catch (error) {
+                sound.failed = true;
+                console.warn('Audio initialization failed:', error);
+            }
+        }
+
+        function startBgm() {
+            if (!sound.initialized || sound.muted || !sound.loop) return;
+            sound.step = 0;
+            sound.loop.start(0);
+            if (Tone.Transport.state !== 'started') {
+                Tone.Transport.start();
+            }
+        }
+
+        function stopBgm() {
+            if (!sound.initialized || !sound.loop) return;
+            sound.loop.stop(0);
+            Tone.Transport.stop();
+            Tone.Transport.position = 0;
+        }
+
+        function playJumpSfx() {
+            if (!sound.initialized || sound.muted || !sound.jumpSynth) return;
+            sound.jumpSynth.triggerAttackRelease('G5', '32n', undefined, 0.2);
+        }
+
+        function playHitSfx() {
+            if (!sound.initialized || sound.muted || !sound.hitSynth) return;
+            sound.hitSynth.triggerAttackRelease('16n', undefined, 0.25);
+        }
+
+        function playGoalSfx() {
+            if (!sound.initialized || sound.muted || !sound.goalSynth) return;
+            const now = Tone.now();
+            sound.goalSynth.triggerAttackRelease(['C5', 'E5', 'G5'], '8n', now, 0.22);
+            sound.goalSynth.triggerAttackRelease(['D5', 'F5', 'A5'], '8n', now + 0.2, 0.22);
+        }
+
+        function toggleMute() {
+            sound.muted = !sound.muted;
+            if (typeof Tone !== 'undefined') {
+                Tone.Destination.mute = sound.muted;
+            }
+            if (sound.muted) {
+                stopBgm();
+            } else if (gameRunning) {
+                startBgm();
+            }
+            updateMuteButton();
+        }
+
+        function updateMuteButton() {
+            muteButton.textContent = sound.muted ? 'SOUND: OFF' : 'SOUND: ON';
+        }
+
+        async function startGame() {
+            await prepareAudio();
+            currentDifficulty = DIFFICULTIES[selectedDifficulty];
+            gameRunning = true;
+            score = 0;
+            distance = 0;
+            gameSpeed = currentDifficulty.startSpeed;
+            frameCount = 0;
+            terrainScroll = 0;
+            jumpHeld = false;
+            deathCause = '';
+            kingSpawned = false;
+            pendingChaserWave = null;
+            chaserWarningTimer = 0;
+            obstacles.length = 0;
+            projectiles.length = 0;
+            chasers.length = 0;
+            player.y = 300;
+            player.velocityY = 0;
+            player.jumpsUsed = 0;
+            player.jumpHoldFrames = 0;
+            player.coyoteFrames = 0;
+            player.jumpBufferFrames = 0;
+            home.x = HOME_START_X;
+            startScreen.style.display = 'none';
+            if (!sound.muted) {
+                startBgm();
+            }
+            gameLoop();
+        }
+
+        function gameLoop() {
+            if (!gameRunning) return;
+
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function update() {
+            frameCount++;
+            terrainScroll += gameSpeed;
+            // ゴール判定（家との接触）と同じ基準で距離を算出
+            const totalTravelPixels = (player.x - home.width) - HOME_START_X;
+            const traveledPixels = Math.max(0, home.x - HOME_START_X);
+            const progressRatio = Math.min(traveledPixels / totalTravelPixels, 1);
+            distance = Math.min(GOAL_DISTANCE_METERS, Math.round(progressRatio * GOAL_DISTANCE_METERS));
+            score = distance;
+            const remaining = Math.max(0, GOAL_DISTANCE_METERS - distance);
+            scoreDisplay.textContent = `残り: ${remaining}m [${currentDifficulty.label}]`;
+
+            // Increase difficulty
+            if (frameCount % currentDifficulty.speedRampInterval === 0 && gameSpeed < currentDifficulty.maxSpeed) {
+                gameSpeed += 0.3;
+            }
+
+            // 入力感度を上げる（コヨーテタイム + 入力バッファ）
+            if (player.grounded) {
+                player.coyoteFrames = player.maxCoyoteFrames;
+            } else {
+                player.coyoteFrames = Math.max(0, player.coyoteFrames - 1);
+            }
+            if (player.jumpBufferFrames > 0) {
+                player.jumpBufferFrames--;
+                jump();
+            }
+
+            // Player movement（長押しで滞空時間がより伸びる）
+            const canFloat = jumpHeld && player.velocityY < 0 && player.jumpHoldFrames < player.maxJumpHoldFrames;
+            if (canFloat) {
+                // 押し始めは強く浮き、後半は徐々に通常重力へ戻す
+                const holdRatio = player.jumpHoldFrames / player.maxJumpHoldFrames;
+                const holdGravityFactor = 0.24 + holdRatio * 0.44;
+                player.velocityY += player.gravity * holdGravityFactor;
+                player.jumpHoldFrames++;
+            } else {
+                // 早く離すと上昇が早めに終わり、短いジャンプになる
+                if (!jumpHeld && player.velocityY < 0 && player.jumpHoldFrames < player.maxJumpHoldFrames) {
+                    player.velocityY += player.gravity * 0.68;
+                }
+                player.velocityY += player.gravity;
+            }
+            player.velocityY = Math.max(-13, Math.min(10, player.velocityY));
+            player.y += player.velocityY;
+
+            // Ground collision
+            const groundLevel = getGroundLevelAt(player.x + player.width * 0.5);
+            if (player.y + player.height > groundLevel) {
+                player.y = groundLevel - player.height;
+                player.velocityY = 0;
+                player.grounded = true;
+                player.jumpsUsed = 0;
+                player.jumpHoldFrames = 0;
+                if (player.jumpBufferFrames > 0) {
+                    jump();
+                }
+            } else if (player.y < 0) {
+                player.y = 0;
+                player.velocityY = 0;
+            } else {
+                player.grounded = false;
+            }
+
+            // Update home position (moves RIGHT as player moves LEFT)
+            home.x += gameSpeed;
+
+            // Check if reached home
+            if (home.x + home.width >= player.x && home.x <= player.x + player.width) {
+                winGame();
+                return;
+            }
+
+            // 終盤に王様をラスボスとして1体だけ出現
+            const remainingMeters = Math.max(0, GOAL_DISTANCE_METERS - distance);
+            if (!kingSpawned && remainingMeters <= 380) {
+                const kingGround = getGroundLevelAt(-70 + KING_BOSS.width * 0.5);
+                obstacles.push({
+                    x: -70,
+                    y: kingGround - KING_BOSS.height,
+                    width: KING_BOSS.width,
+                    height: KING_BOSS.height,
+                    type: KING_BOSS,
+                    flying: false,
+                    followsGround: true,
+                    elevatedType: null,
+                    towerHeight: 0,
+                    boss: true
+                });
+                kingSpawned = true;
+            }
+
+            // Create obstacles (more frequently for longer game)
+            const kingActive = obstacles.some(ob => ob.boss);
+            if (!kingActive && frameCount % currentDifficulty.obstacleSpawnInterval === 0) {
+                const type = obstacleTypes[Math.floor(Math.random() * obstacleTypes.length)];
+                // 奥にいる敵（櫓/気球）は弓兵のみ
+                const canBeElevated = type.name === 'archer';
+                const isFlying = canBeElevated && Math.random() > 0.62;
+                const spawnGroundY = getGroundLevelAt(-50 + type.width * 0.5);
+                let spawnY = isFlying ? 150 + Math.random() * 150 : spawnGroundY - type.height;
+                let elevatedType = null;
+                let structureHeight = 0;
+                if (isFlying) {
+                    elevatedType = Math.random() > 0.45 ? 'balloon' : 'rooftop';
+                    if (elevatedType === 'balloon') {
+                        spawnY = 130 + Math.random() * 120;
+                    } else {
+                        structureHeight = 52 + Math.floor(Math.random() * 18);
+                        spawnY = spawnGroundY - type.height - structureHeight;
+                    }
+                }
+                if (type.name === 'archer') {
+                    if (!isFlying) spawnY = spawnGroundY - type.height;
+                }
+                obstacles.push({
+                    x: -50,
+                    y: spawnY,
+                    width: type.width,
+                    height: type.height,
+                    type: type,
+                    flying: isFlying,
+                    followsGround: !isFlying || elevatedType === 'rooftop',
+                    elevatedType: elevatedType,
+                    structureHeight: structureHeight
+                });
+            }
+
+            // 騎馬追手の予告「！」を出した後に、後方から出現
+            const warningPhase = currentDifficulty.chaserSpawnInterval - CHASER_WARNING_LEAD;
+            if (!pendingChaserWave && frameCount % currentDifficulty.chaserSpawnInterval === warningPhase) {
+                if (Math.random() > 0.42) {
+                    pendingChaserWave = {
+                        timer: CHASER_WARNING_LEAD,
+                        burst: 1 + Math.floor(Math.random() * 2)
+                    };
+                    chaserWarningTimer = CHASER_WARNING_LEAD;
+                }
+            }
+            if (pendingChaserWave) {
+                pendingChaserWave.timer--;
+                chaserWarningTimer = pendingChaserWave.timer;
+                if (pendingChaserWave.timer <= 0) {
+                    spawnChaserWave(pendingChaserWave.burst);
+                    pendingChaserWave = null;
+                    chaserWarningTimer = 0;
+                }
+            }
+
+            // Update obstacles (move RIGHT)
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                obstacles[i].x += gameSpeed;
+                if (obstacles[i].followsGround) {
+                    const obstacleGround = getGroundLevelAt(obstacles[i].x + obstacles[i].width * 0.5);
+                    const supportHeight = obstacles[i].elevatedType === 'rooftop' ? obstacles[i].structureHeight : 0;
+                    obstacles[i].y = obstacleGround - obstacles[i].height - supportHeight;
+                }
+
+                // Remove off-screen obstacles
+                if (obstacles[i].x > canvas.width) {
+                    obstacles.splice(i, 1);
+                    continue;
+                }
+
+                // 奥レイヤー（櫓/気球）は接触しない。地上の敵のみ接触判定
+                const obstacleHitbox = getObstacleHitbox(obstacles[i]);
+                if (obstacleHitbox && checkCollision(player, obstacleHitbox)) {
+                    setDeathCauseByObstacle(obstacles[i]);
+                    gameOver();
+                    return;
+                }
+
+                // 弓兵は一定間隔で矢を発射
+                if (obstacles[i].type.name === 'archer' && frameCount % currentDifficulty.archerFireInterval === 0) {
+                    const isBackgroundArcher = !!obstacles[i].elevatedType;
+                    const spawnX = obstacles[i].x + obstacles[i].width;
+                    const spawnY = isBackgroundArcher
+                        ? (obstacles[i].elevatedType === 'balloon' ? obstacles[i].y - 2 : obstacles[i].y + 10)
+                        : obstacles[i].y + 17;
+
+                    if (isBackgroundArcher) {
+                        // 発射時のみ未来位置を狙う（追尾はしない）
+                        const targetX = player.x + player.width * 0.8 + gameSpeed * 20;
+                        const targetY = player.y + player.height * 0.58;
+                        const dx = targetX - spawnX;
+                        const dy = targetY - spawnY;
+                        const length = Math.hypot(dx, dy) || 1;
+                        const shotSpeed = gameSpeed + currentDifficulty.projectileSpeedBonus + 0.8;
+                        projectiles.push({
+                            x: spawnX,
+                            y: spawnY,
+                            width: 18,
+                            height: 6,
+                            vx: (dx / length) * shotSpeed,
+                            vy: (dy / length) * shotSpeed,
+                            fromBackground: true,
+                            variant: 'arrow'
+                        });
+                    } else {
+                        projectiles.push({
+                            x: spawnX,
+                            y: spawnY,
+                            width: 24,
+                            height: 8,
+                            speed: gameSpeed + currentDifficulty.projectileSpeedBonus,
+                            variant: 'arrow'
+                        });
+                    }
+                }
+
+                // 王様ラスボスは強化弾を連射
+                if (obstacles[i].boss && frameCount % 56 === 0) {
+                    const baseX = obstacles[i].x + obstacles[i].width;
+                    const baseY = obstacles[i].y + 20;
+                    for (let s = -1; s <= 1; s++) {
+                        projectiles.push({
+                            x: baseX,
+                            y: baseY + s * 10,
+                            width: 28,
+                            height: 10,
+                            speed: gameSpeed + currentDifficulty.projectileSpeedBonus + 1.8,
+                            variant: 'royal'
+                        });
+                    }
+                }
+            }
+
+            // Update projectiles (move RIGHT)
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                if (typeof projectiles[i].vx === 'number') {
+                    projectiles[i].x += projectiles[i].vx;
+                    projectiles[i].y += projectiles[i].vy;
+                } else {
+                    projectiles[i].x += projectiles[i].speed;
+                }
+
+                if (
+                    projectiles[i].x > canvas.width + 30 ||
+                    projectiles[i].y < -40 ||
+                    projectiles[i].y > canvas.height + 40
+                ) {
+                    projectiles.splice(i, 1);
+                    continue;
+                }
+
+                if (checkCollision(player, projectiles[i])) {
+                    deathCause = projectiles[i].variant === 'royal' ? '王の強化弾に撃たれた' : '矢に撃ち抜かれた';
+                    gameOver();
+                    return;
+                }
+            }
+
+            // 騎馬追手（画面右から左へ）
+            for (let i = chasers.length - 1; i >= 0; i--) {
+                chasers[i].x -= chasers[i].speed;
+                const chaseGround = getGroundLevelAt(chasers[i].x + chasers[i].width * 0.45);
+                chasers[i].y = chaseGround - chasers[i].height;
+
+                if (chasers[i].x + chasers[i].width < -40) {
+                    chasers.splice(i, 1);
+                    continue;
+                }
+                // 見た目より少し小さい当たり判定で、ギリ回避しやすくする
+                const chaserHitbox = {
+                    x: chasers[i].x + 7,
+                    y: chasers[i].y + 8,
+                    width: 36,
+                    height: 24
+                };
+                if (checkCollision(player, chaserHitbox)) {
+                    deathCause = '騎馬追手に追いつかれた';
+                    gameOver();
+                    return;
+                }
+            }
+
+            // Update clouds (move RIGHT)
+            clouds.forEach(cloud => {
+                cloud.x += cloud.speed;
+                if (cloud.x > canvas.width) {
+                    cloud.x = -cloud.width;
+                    cloud.y = Math.random() * 150 + 20;
+                }
+            });
+        }
+
+        function checkCollision(rect1, rect2) {
+            return rect1.x < rect2.x + rect2.width &&
+                   rect1.x + rect1.width > rect2.x &&
+                   rect1.y < rect2.y + rect2.height &&
+                   rect1.y + rect1.height > rect2.y;
+        }
+
+        function getObstacleHitbox(obstacle) {
+            // 奥にある櫓・気球は演出専用（接触しない）
+            if (obstacle.elevatedType) return null;
+
+            // 木は見た目より当たり判定を細く（幹中心）
+            if (obstacle.type.name === 'tree') {
+                return {
+                    x: obstacle.x + 11,
+                    y: obstacle.y + 22,
+                    width: 14,
+                    height: 34
+                };
+            }
+
+            return obstacle;
+        }
+
+        function draw() {
+            // Sky gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#5b9bd5');
+            gradient.addColorStop(0.4, '#8fbbe5');
+            gradient.addColorStop(0.7, '#c7e0f4');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw pixel clouds
+            clouds.forEach(cloud => {
+                drawPixelCloud(cloud.x, cloud.y, cloud.width);
+            });
+
+            // 起伏地形
+            drawTerrain();
+
+            // Draw home if visible
+            if (home.x > -home.width && home.x < canvas.width) {
+                const homeGroundY = getGroundLevelAt(home.x + home.width * 0.5);
+                drawHome(home.x, homeGroundY - home.height);
+            }
+
+            // 奥の敵（櫓/気球）を先に描画
+            obstacles.forEach(obstacle => {
+                if (obstacle.elevatedType) drawObstacle(obstacle);
+            });
+
+            // Draw player (Red Melos) - pixel art style
+            drawMelos(player.x, player.y);
+
+            // 手前の敵を後で描画
+            obstacles.forEach(obstacle => {
+                if (!obstacle.elevatedType) drawObstacle(obstacle);
+            });
+
+            // Draw horse chasers
+            chasers.forEach(chaser => {
+                drawHorseChaser(chaser);
+            });
+
+            // 騎馬追手の接近予告（終盤ほど速く点滅）
+            if (chaserWarningTimer > 0) {
+                const blinkSpan = chaserWarningTimer > 28 ? 5 : 2;
+                if (Math.floor(chaserWarningTimer / blinkSpan) % 2 === 0) {
+                    const warningX = canvas.width - 108;
+                    const warningY = 180;
+                    const urgent = chaserWarningTimer < 22;
+
+                    // 外枠
+                    ctx.fillStyle = urgent ? '#5a0d0d' : '#2a1a12';
+                    ctx.fillRect(warningX, warningY, 70, 52);
+                    // 内側
+                    ctx.fillStyle = urgent ? '#ffb347' : '#ffe173';
+                    ctx.fillRect(warningX + 4, warningY + 4, 62, 44);
+
+                    // 右から来る向きのミニ馬シルエット
+                    ctx.fillStyle = '#4a2b19';
+                    ctx.fillRect(warningX + 10, warningY + 28, 20, 8);
+                    ctx.fillRect(warningX + 28, warningY + 25, 8, 6);
+                    ctx.fillRect(warningX + 13, warningY + 36, 3, 6);
+                    ctx.fillRect(warningX + 21, warningY + 36, 3, 6);
+                    ctx.fillRect(warningX + 31, warningY + 36, 3, 6);
+
+                    // 強調マーク
+                    ctx.fillStyle = '#8b0000';
+                    ctx.font = urgent
+                        ? '26px "PixelMplus12", "Press Start 2P", monospace'
+                        : '22px "PixelMplus12", "Press Start 2P", monospace';
+                    ctx.fillText(urgent ? '!!' : '!', warningX + 40, warningY + 38);
+                }
+            }
+
+            // Draw arrows
+            projectiles.forEach(projectile => {
+                drawArrow(projectile);
+            });
+
+            // Progress indicator
+            const progress = Math.min(distance / GOAL_DISTANCE_METERS, 1);
+            ctx.fillStyle = '#000';
+            ctx.fillRect(10, canvas.height - 30, 200, 20);
+            ctx.fillStyle = '#e1452d';
+            ctx.fillRect(12, canvas.height - 28, 196 * progress, 16);
+            ctx.fillStyle = '#ffd700';
+            ctx.font = '12px "PixelMplus12", "Press Start 2P", monospace';
+            const remainMeters = Math.max(0, GOAL_DISTANCE_METERS - distance);
+            ctx.fillText(`${remainMeters}m`, 215, canvas.height - 15);
+        }
+
+        function drawPixelCloud(x, y, width) {
+            const size = 8;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.fillRect(x, y, size * 3, size);
+            ctx.fillRect(x + size, y - size, size * 2, size);
+            ctx.fillRect(x - size, y, size, size);
+            ctx.fillRect(x + size * 3, y, size, size);
+        }
+
+        function drawMelos(x, y) {
+            // Body
+            ctx.fillStyle = '#e1452d';
+            ctx.fillRect(x + 8, y + 12, 16, 20);
+            
+            // Head
+            ctx.fillStyle = '#ffdbac';
+            ctx.fillRect(x + 10, y, 12, 12);
+            
+            // Eyes
+            ctx.fillStyle = '#000';
+            ctx.fillRect(x + 12, y + 4, 3, 3);
+            ctx.fillRect(x + 17, y + 4, 3, 3);
+            
+            // Arms (running motion)
+            const armSwing = Math.sin(frameCount * 0.2) * 4;
+            ctx.fillStyle = '#e1452d';
+            ctx.fillRect(x + 4, y + 16 + armSwing, 4, 12);
+            ctx.fillRect(x + 24, y + 16 - armSwing, 4, 12);
+            
+            // Legs (running motion)
+            const legSwing = Math.sin(frameCount * 0.3) * 6;
+            ctx.fillStyle = '#e1452d';
+            ctx.fillRect(x + 10, y + 32, 4, 8 + Math.abs(legSwing));
+            ctx.fillRect(x + 18, y + 32, 4, 8 + Math.abs(-legSwing));
+        }
+
+        function drawHome(x, y) {
+            // 目立つ赤屋根の「メロスの家」
+            ctx.fillStyle = '#a3382a';
+            ctx.fillRect(x + 8, y + 6, 86, 24);
+            ctx.fillRect(x, y + 24, 104, 12);
+
+            // 壁
+            ctx.fillStyle = '#d8b88b';
+            ctx.fillRect(x + 6, y + 36, 92, 90);
+
+            // 扉
+            ctx.fillStyle = '#5e3d25';
+            ctx.fillRect(x + 42, y + 78, 22, 48);
+
+            // 窓
+            ctx.fillStyle = '#9dd8ff';
+            ctx.fillRect(x + 18, y + 56, 14, 14);
+            ctx.fillRect(x + 72, y + 56, 14, 14);
+            ctx.strokeStyle = '#5e3d25';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x + 18, y + 56, 14, 14);
+            ctx.strokeRect(x + 72, y + 56, 14, 14);
+
+            // 煙突
+            ctx.fillStyle = '#8b4513';
+            ctx.fillRect(x + 72, y - 8, 12, 20);
+
+            // 看板で家を明示
+            ctx.fillStyle = '#4b2b18';
+            ctx.fillRect(x + 30, y + 24, 44, 12);
+            ctx.fillStyle = '#ffd700';
+            ctx.font = '8px "PixelMplus12", "Press Start 2P", monospace';
+            ctx.fillText('MELOS', x + 33, y + 33);
+
+            // ドア前の灯り
+            ctx.fillStyle = '#ffd54a';
+            ctx.fillRect(x + 48, y + 96, 10, 10);
+        }
+
+        function drawObstacle(obstacle) {
+            const x = obstacle.x;
+            const y = obstacle.y;
+            const previousAlpha = ctx.globalAlpha;
+
+            if (obstacle.elevatedType === 'balloon') {
+                // ちゃんとした気球（球体 + 索具 + バスケット）
+                // 球体
+                ctx.fillStyle = '#7d3fc3';
+                ctx.fillRect(x - 10, y - 66, 52, 8);
+                ctx.fillRect(x - 14, y - 58, 60, 10);
+                ctx.fillStyle = '#9b64da';
+                ctx.fillRect(x - 16, y - 48, 64, 16);
+                ctx.fillRect(x - 12, y - 32, 56, 12);
+                ctx.fillStyle = '#b98af0';
+                ctx.fillRect(x - 4, y - 56, 40, 8);
+
+                // 口元（球体の下）
+                ctx.fillStyle = '#5a2d8c';
+                ctx.fillRect(x + 8, y - 20, 16, 6);
+
+                // 索具（ロープ）
+                ctx.fillStyle = '#c9a46a';
+                ctx.fillRect(x + 10, y - 14, 2, 10);
+                ctx.fillRect(x + 20, y - 14, 2, 10);
+                ctx.fillRect(x + 6, y - 12, 2, 8);
+                ctx.fillRect(x + 24, y - 12, 2, 8);
+
+                // バスケット
+                ctx.fillStyle = '#7b4a24';
+                ctx.fillRect(x + 4, y - 4, 24, 12);
+                ctx.fillStyle = '#9a6234';
+                ctx.fillRect(x + 6, y - 2, 20, 8);
+            } else if (obstacle.elevatedType === 'rooftop') {
+                // 奥の家（当たり判定なし）から兵士が射る
+                ctx.globalAlpha = 0.26;
+                const houseY = y + obstacle.height;
+                ctx.fillStyle = '#8d5f3a';
+                ctx.fillRect(x - 14, houseY + 8, 58, 40);      // 壁
+                ctx.fillStyle = '#6d3d2a';
+                ctx.fillRect(x - 18, houseY, 66, 12);          // 屋根
+                ctx.fillStyle = '#4f2f1d';
+                ctx.fillRect(x - 4, houseY + 26, 12, 22);      // 扉
+                ctx.fillStyle = '#9dd8ff';
+                ctx.fillRect(x + 18, houseY + 20, 10, 10);     // 窓
+            }
+            
+            switch(obstacle.type.name) {
+                case 'king':
+                    // Crown
+                    ctx.fillStyle = '#ffd700';
+                    ctx.fillRect(x + 8, y, 28, 10);
+                    ctx.fillRect(x + 10, y - 6, 5, 6);
+                    ctx.fillRect(x + 19, y - 6, 5, 6);
+                    ctx.fillRect(x + 28, y - 6, 5, 6);
+                    
+                    // Body
+                    ctx.fillStyle = '#9b30ff';
+                    ctx.fillRect(x + 6, y + 10, 30, 40);
+                    
+                    // Face
+                    ctx.fillStyle = '#ffdbac';
+                    ctx.fillRect(x + 12, y + 10, 18, 14);
+                    
+                    // Eyes
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(x + 16, y + 16, 3, 3);
+                    ctx.fillRect(x + 24, y + 16, 3, 3);
+                    if (obstacle.boss) {
+                        // ラスボス感を出すマント
+                        ctx.fillStyle = '#4b1f78';
+                        ctx.fillRect(x + 2, y + 16, 40, 42);
+                    }
+                    break;
+                    
+                case 'soldier':
+                    // Helmet
+                    ctx.fillStyle = '#4a4a4a';
+                    ctx.fillRect(x + 6, y, 16, 10);
+                    
+                    // Body
+                    ctx.fillStyle = '#8b4513';
+                    ctx.fillRect(x + 4, y + 10, 20, 28);
+                    
+                    // Face
+                    ctx.fillStyle = '#ffdbac';
+                    ctx.fillRect(x + 8, y + 10, 12, 10);
+                    
+                    // Sword
+                    ctx.fillStyle = '#c0c0c0';
+                    ctx.fillRect(x + 22, y + 15, 4, 20);
+                    break;
+                    
+                case 'villager':
+                    // Hat
+                    ctx.fillStyle = '#d2691e';
+                    ctx.fillRect(x + 4, y, 16, 8);
+                    
+                    // Body
+                    ctx.fillStyle = '#4169e1';
+                    ctx.fillRect(x + 4, y + 8, 16, 28);
+                    
+                    // Face
+                    ctx.fillStyle = '#ffdbac';
+                    ctx.fillRect(x + 6, y + 8, 12, 10);
+                    break;
+                    
+                case 'rock':
+                    ctx.fillStyle = '#696969';
+                    ctx.fillRect(x, y, 40, 32);
+                    ctx.fillStyle = '#808080';
+                    ctx.fillRect(x + 4, y + 4, 12, 12);
+                    ctx.fillRect(x + 20, y + 8, 16, 16);
+                    break;
+                    
+                case 'tree':
+                    // Trunk
+                    ctx.fillStyle = '#654321';
+                    ctx.fillRect(x + 12, y + 24, 12, 32);
+                    
+                    // Leaves (pixel style)
+                    ctx.fillStyle = '#228b22';
+                    ctx.fillRect(x + 4, y + 12, 28, 8);
+                    ctx.fillRect(x + 8, y + 4, 20, 8);
+                    ctx.fillRect(x, y + 20, 36, 12);
+                    break;
+
+                case 'archer':
+                    // 気球搭乗時は「カゴの中」にいる見た目にする
+                    if (obstacle.elevatedType === 'balloon') {
+                        // 上半身のみ見せる（下半身はカゴに隠れる）
+                        ctx.fillStyle = '#2f4f4f';
+                        ctx.fillRect(x + 10, y - 18, 12, 8); // フード
+                        ctx.fillStyle = '#ffdbac';
+                        ctx.fillRect(x + 12, y - 12, 8, 8); // 顔
+                        ctx.fillStyle = '#3b5f7a';
+                        ctx.fillRect(x + 9, y - 4, 14, 9); // 胴上部
+                        ctx.fillStyle = '#8b4513';
+                        ctx.fillRect(x + 6, y - 6, 2, 14); // 弓
+                        ctx.fillRect(x + 6, y - 6, 5, 2);
+                        ctx.fillRect(x + 6, y + 6, 5, 2);
+
+                        // カゴの前縁を最後に描いて「中に乗っている」見え方を作る
+                        ctx.fillStyle = '#6c3f1f';
+                        ctx.fillRect(x + 4, y + 1, 24, 5);
+                        break;
+                    }
+
+                    if (obstacle.elevatedType === 'rooftop') {
+                        // 屋上に立って射ってくる兵士風の見た目
+                        ctx.fillStyle = '#4a4a4a';
+                        ctx.fillRect(x + 6, y - 2, 16, 10); // 兜
+                        ctx.fillStyle = '#ffdbac';
+                        ctx.fillRect(x + 9, y + 6, 12, 9); // 顔
+                        ctx.fillStyle = '#8b4513';
+                        ctx.fillRect(x + 5, y + 14, 20, 20); // 鎧
+                        ctx.fillStyle = '#8b4513';
+                        ctx.fillRect(x + 2, y + 12, 2, 20); // 弓
+                        ctx.fillRect(x + 2, y + 12, 6, 2);
+                        ctx.fillRect(x + 2, y + 30, 6, 2);
+                        break;
+                    }
+
+                    const archerY = y;
+                    // フード
+                    ctx.fillStyle = '#2f4f4f';
+                    ctx.fillRect(x + 6, archerY, 16, 10);
+                    // 顔
+                    ctx.fillStyle = '#ffdbac';
+                    ctx.fillRect(x + 9, archerY + 8, 12, 10);
+                    // 体
+                    ctx.fillStyle = '#3b5f7a';
+                    ctx.fillRect(x + 5, archerY + 18, 20, 24);
+                    // 弓
+                    ctx.fillStyle = '#8b4513';
+                    ctx.fillRect(x + 2, archerY + 16, 2, 22);
+                    ctx.fillRect(x + 2, archerY + 16, 6, 2);
+                    ctx.fillRect(x + 2, archerY + 36, 6, 2);
+                    break;
+            }
+            ctx.globalAlpha = previousAlpha;
+        }
+
+        function drawHorseChaser(chaser) {
+            const x = chaser.x;
+            const y = chaser.y;
+            // 馬体
+            ctx.fillStyle = '#6b3f24';
+            ctx.fillRect(x + 4, y + 10, 28, 14);
+            ctx.fillRect(x + 28, y + 6, 12, 10);
+            // 脚
+            ctx.fillRect(x + 8, y + 24, 4, 10);
+            ctx.fillRect(x + 18, y + 24, 4, 10);
+            ctx.fillRect(x + 30, y + 24, 4, 10);
+            // 騎手
+            ctx.fillStyle = '#444';
+            ctx.fillRect(x + 14, y + 0, 10, 10);
+            ctx.fillStyle = '#b33232';
+            ctx.fillRect(x + 12, y + 10, 12, 10);
+            // 槍
+            ctx.fillStyle = '#c0c0c0';
+            ctx.fillRect(x + 34, y + 4, 14, 2);
+        }
+
+        function drawArrow(projectile) {
+            const vx = (typeof projectile.vx === 'number') ? projectile.vx : projectile.speed;
+            const vy = (typeof projectile.vy === 'number') ? projectile.vy : 0;
+            const angle = Math.atan2(vy, vx);
+            const x = projectile.x;
+            const y = projectile.y;
+
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(angle);
+
+            if (projectile.variant === 'royal') {
+                // 王の強化弾（進行方向へ向く）
+                ctx.fillStyle = '#2a1240';
+                ctx.fillRect(-2, 1, 26, 8);
+                ctx.fillStyle = '#d0a3ff';
+                ctx.fillRect(1, 3, 14, 3);
+                ctx.fillStyle = '#ffd700';
+                ctx.fillRect(15, 2, 7, 5);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(-3, 3, 2, 2);
+                ctx.restore();
+                return;
+            }
+
+            if (projectile.fromBackground) {
+                // 手前に来るほど大きく見せて、奥→手前の飛来感を強調
+                const approach = Math.max(0, Math.min(1, (projectile.x + 24) / (player.x + 24)));
+                const s = 1 + approach * 0.75;
+                const bodyW = Math.round(12 * s);
+                const bodyH = Math.max(2, Math.round(2 * s));
+                const tipW = Math.max(3, Math.round(4 * s));
+                const tipH = Math.max(3, Math.round(4 * s));
+
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(-1, 1, bodyW + tipW + 2, bodyH + 2);
+                ctx.fillStyle = '#ffe07a';
+                ctx.fillRect(1, 2, bodyW, bodyH);
+                ctx.fillStyle = '#ff6a6a';
+                ctx.fillRect(1 + bodyW, 1, tipW, tipH);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+                ctx.fillRect(-4, 2, 2, 2);
+                ctx.restore();
+                return;
+            }
+
+            // 通常矢（進行方向へ向く）
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(-1, 1, 22, 6);
+            ctx.fillStyle = '#ffd866';
+            ctx.fillRect(1, 3, 14, 2);
+            ctx.fillStyle = '#ff5a5a';
+            ctx.fillRect(15, 2, 5, 4);
+            ctx.fillRect(20, 3, 3, 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(-1, 2, 2, 1);
+            ctx.fillRect(-1, 5, 2, 1);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+            ctx.fillRect(-5, 3, 2, 2);
+            ctx.fillRect(-9, 3, 2, 2);
+            ctx.restore();
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            stopBgm();
+            playHitSfx();
+            const cause = deathCause || '力尽きた';
+            finalScoreDisplay.innerHTML = `走行距離: ${score}m / ${GOAL_DISTANCE_METERS}m<br>死因: ${cause}`;
+            gameOverScreen.style.display = 'flex';
+        }
+
+        function winGame() {
+            gameRunning = false;
+            stopBgm();
+            playGoalSfx();
+            winMessage.textContent = `メロスは無事に家に帰り着いた！\n走行距離: ${score}m`;
+            winMessage.style.fontSize = '0.8em';
+            winMessage.style.lineHeight = '2';
+            winMessage.style.color = '#ffd700';
+            winMessage.style.fontFamily = "'PixelMplus12', 'Press Start 2P', monospace";
+            winScreen.style.display = 'flex';
+        }
+
+        // Draw pixel art on start screen
+        drawPixelArtTitle();
+        initRealtimeChat();
+    </script>
+</body>
+</html>
