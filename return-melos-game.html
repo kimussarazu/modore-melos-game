@@ -395,7 +395,7 @@
     </div>
 
     <script src="https://unpkg.com/tone@14.7.77/build/Tone.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/nostr-tools@2.7.2/lib/nostr.bundle.js"></script>
     <script>
         const gameContainer = document.getElementById('gameContainer');
         const canvas = document.getElementById('gameCanvas');
@@ -525,14 +525,22 @@
         // タイトル画面のリアルタイム掲示板
         const chatState = {
             initialized: false,
-            gun: null,
-            room: null,
+            pool: null,
+            pubkey: '',
+            seckey: null,
             messages: new Map(),
             maxMessages: 80,
             selfId: '',
             lastEnterAt: 0,
-            pollingTimer: null
+            pollingTimer: null,
+            seenEventIds: new Set()
         };
+        const NOSTR_RELAYS = [
+            'wss://relay.damus.io',
+            'wss://nos.lol',
+            'wss://relay.nostr.band'
+        ];
+        const NOSTR_ROOM_TAG = 'modore-melos-board-v1';
 
         // Player - Red Melos
         const player = {
@@ -852,6 +860,18 @@
             return `${hh}:${mm}`;
         }
 
+        function bytesToHex(bytes) {
+            return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        function hexToBytes(hex) {
+            const result = new Uint8Array(hex.length / 2);
+            for (let i = 0; i < result.length; i++) {
+                result[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+            }
+            return result;
+        }
+
         function renderChatMessages() {
             const sorted = Array.from(chatState.messages.values())
                 .sort((a, b) => (a.ts || 0) - (b.ts || 0))
@@ -863,26 +883,18 @@
             }
 
             chatMessages.innerHTML = sorted.map(msg => {
-                const canManage = msg.uid && msg.uid === chatState.selfId;
                 const safeName = escapeHtml(msg.name || '名無しメロス');
                 const safeText = escapeHtml(msg.text || '');
                 const time = formatTime(msg.ts);
-                const actions = canManage
-                    ? `<span class="chatActions"><button class="chatActionBtn" data-action="delete" data-key="${msg.key}">削除</button></span>`
-                    : '';
-                return `<div class="chatMessage"><span class="chatMeta">[${time}] ${safeName}:</span> ${safeText}${actions}</div>`;
+                return `<div class="chatMessage"><span class="chatMeta">[${time}] ${safeName}:</span> ${safeText}</div>`;
             }).join('');
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
         function ingestChatRecord(data, key) {
-            if (!data) return;
-            if (data.deleted) {
-                chatState.messages.delete(key);
-                renderChatMessages();
-                return;
-            }
-            if (!data.text || typeof data.text !== 'string') return;
+            if (!data || !data.text) return;
+            if (chatState.seenEventIds.has(key)) return;
+            chatState.seenEventIds.add(key);
             chatState.messages.set(key, { ...data, key });
             if (chatState.messages.size > chatState.maxMessages) {
                 const oldestKey = chatState.messages.keys().next().value;
@@ -891,11 +903,35 @@
             renderChatMessages();
         }
 
-        function refreshChatMessages() {
-            if (!chatState.room) return;
-            chatState.room.map().once((data, key) => {
-                ingestChatRecord(data, key);
-            });
+        function ingestNostrEvent(event) {
+            if (!event || !event.id || chatState.seenEventIds.has(event.id)) return;
+            let payload;
+            try {
+                payload = JSON.parse(event.content || '{}');
+            } catch {
+                return;
+            }
+            if (!payload || typeof payload.text !== 'string') return;
+            ingestChatRecord({
+                name: String(payload.name || '名無しメロス').slice(0, 12),
+                text: String(payload.text || '').slice(0, 80),
+                uid: payload.uid || '',
+                ts: (event.created_at || Math.floor(Date.now() / 1000)) * 1000
+            }, event.id);
+        }
+
+        async function refreshChatMessages() {
+            if (!chatState.pool) return;
+            try {
+                const events = await chatState.pool.list(NOSTR_RELAYS, [{
+                    kinds: [1],
+                    '#t': [NOSTR_ROOM_TAG],
+                    limit: 120
+                }]);
+                events.forEach(ingestNostrEvent);
+            } catch (error) {
+                console.warn('Chat refresh failed:', error);
+            }
         }
 
         function initRealtimeChat() {
@@ -911,31 +947,35 @@
             }
             chatState.selfId = savedId;
 
-            if (typeof Gun === 'undefined') {
+            if (typeof NostrTools === 'undefined') {
                 chatStatus.textContent = '掲示板接続に失敗しました（オフライン）';
                 return;
             }
 
             try {
-                chatState.gun = Gun({
-                    peers: [
-                        'https://gun.eco/gun',
-                        'https://gunjs.herokuapp.com/gun',
-                        'https://gun-vue.herokuapp.com/gun',
-                        'https://peer.wallie.io/gun'
-                    ]
-                });
-                chatState.room = chatState.gun.get('return-melos-board-v1').get('lobby');
-                chatState.room.map().on((data, key) => {
-                    ingestChatRecord(data, key);
-                });
+                let keyHex = localStorage.getItem('melos_nostr_secret');
+                if (!keyHex) {
+                    keyHex = bytesToHex(NostrTools.generateSecretKey());
+                    localStorage.setItem('melos_nostr_secret', keyHex);
+                }
+                chatState.seckey = hexToBytes(keyHex);
+                chatState.pubkey = NostrTools.getPublicKey(chatState.seckey);
+                chatState.pool = new NostrTools.SimplePool();
+                chatState.pool.subscribeMany(
+                    NOSTR_RELAYS,
+                    [{ kinds: [1], '#t': [NOSTR_ROOM_TAG], limit: 120 }],
+                    {
+                        onevent(event) {
+                            ingestNostrEvent(event);
+                        }
+                    }
+                );
                 refreshChatMessages();
                 if (chatState.pollingTimer) {
                     clearInterval(chatState.pollingTimer);
                 }
-                // 中継の取りこぼし対策: 定期的に最新状態を再取得
-                chatState.pollingTimer = setInterval(refreshChatMessages, 6000);
-                chatStatus.textContent = '掲示板オンライン: リアルタイム同期中';
+                chatState.pollingTimer = setInterval(refreshChatMessages, 5000);
+                chatStatus.textContent = '掲示板オンライン: リアルタイム同期中（端末間）';
             } catch (error) {
                 console.warn('Chat initialization failed:', error);
                 chatStatus.textContent = '掲示板接続に失敗しました';
@@ -948,30 +988,32 @@
             if (!text) return;
 
             localStorage.setItem('melos_chat_name', name);
-            if (!chatState.room) {
+            if (!chatState.pool || !chatState.seckey) {
                 chatStatus.textContent = '掲示板未接続のため送信できません';
                 return;
             }
 
-            const id = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-            chatState.room.get(id).put({
+            const eventTemplate = {
+                kind: 1,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: [['t', NOSTR_ROOM_TAG]],
+                content: JSON.stringify({
+                    name: name || '名無しメロス',
+                    text: text,
+                    uid: chatState.selfId
+                })
+            };
+            const signed = NostrTools.finalizeEvent(eventTemplate, chatState.seckey);
+
+            ingestChatRecord({
                 name: name || '名無しメロス',
                 text: text,
                 ts: Date.now(),
                 uid: chatState.selfId
-            });
+            }, signed.id);
+            chatState.pool.publish(NOSTR_RELAYS, signed);
             chatInput.value = '';
             chatState.lastEnterAt = 0;
-        }
-
-        function deleteChatMessage(key) {
-            const msg = chatState.messages.get(key);
-            if (!msg || msg.uid !== chatState.selfId) return;
-            chatState.room.get(key).put({
-                deleted: true,
-                ts: msg.ts,
-                uid: msg.uid
-            });
         }
 
         canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -1003,14 +1045,6 @@
         chatRefreshButton.addEventListener('click', () => {
             refreshChatMessages();
             chatStatus.textContent = '掲示板を更新しました';
-        });
-        chatMessages.addEventListener('click', (e) => {
-            const target = e.target;
-            if (!(target instanceof HTMLElement)) return;
-            const action = target.dataset.action;
-            const key = target.dataset.key;
-            if (!action || !key) return;
-            if (action === 'delete') deleteChatMessage(key);
         });
         chatInput.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter') return;
