@@ -515,17 +515,15 @@
         function resizeCanvas() {
             const width = Math.max(360, Math.floor(gameContainer.clientWidth));
             const height = Math.max(500, Math.floor(gameContainer.clientHeight));
-            canvas.width = width;
-            canvas.height = height;
             const isPortrait = height > width * 1.05;
             const isTouchLike = window.matchMedia('(pointer:coarse)').matches;
+            const mobileZoomOut = isTouchLike ? 1.18 : 1;
+            canvas.width = Math.floor(width * mobileZoomOut);
+            canvas.height = Math.floor(height * mobileZoomOut);
             BASE_GROUND_Y = isPortrait
                 ? Math.floor(canvas.height * 0.64)
                 : (canvas.height - 120);
-            const playerXRatio = isTouchLike
-                ? (isPortrait ? 0.76 : 0.73)
-                : 0.67;
-            player.x = Math.floor(canvas.width * playerXRatio);
+            player.x = Math.floor(canvas.width * 0.67);
             player.y = Math.min(player.y, BASE_GROUND_Y - player.height);
             ctx.imageSmoothingEnabled = false;
         }
