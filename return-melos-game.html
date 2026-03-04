@@ -543,6 +543,9 @@
         const CHASER_WARNING_LEAD = 64;
         let pendingChaserWave = null;
         let chaserWarningTimer = 0;
+        let chaserSafetyTimer = 0;
+        let chaserPlan = [];
+        let chaserPlanIndex = 0;
         let deathCause = '';
         let kingSpawned = false;
         let selectedDifficulty = 'normal';
@@ -565,7 +568,11 @@
                 archerFireInterval: 136,
                 projectileSpeedBonus: 1.7,
                 speedRampInterval: 840,
-                maxSpeed: 6.4
+                maxSpeed: 6.4,
+                chaserAppearMin: 0,
+                chaserAppearMax: 1,
+                chaserBurstMin: 1,
+                chaserBurstMax: 1
             },
             normal: {
                 label: 'NORMAL',
@@ -574,7 +581,11 @@
                 archerFireInterval: 108,
                 projectileSpeedBonus: 2.35,
                 speedRampInterval: 700,
-                maxSpeed: 7.15
+                maxSpeed: 7.15,
+                chaserAppearMin: 1,
+                chaserAppearMax: 2,
+                chaserBurstMin: 1,
+                chaserBurstMax: 2
             },
             hard: {
                 label: 'HARD',
@@ -582,16 +593,43 @@
                 obstacleSpawnInterval: 80,
                 archerFireInterval: 86,
                 projectileSpeedBonus: 2.85,
-                chaserSpawnInterval: 340,
                 chaserSpeedBonus: 0.58,
                 speedRampInterval: 600,
-                maxSpeed: 7.8
+                maxSpeed: 7.8,
+                chaserAppearMin: 2,
+                chaserAppearMax: 2,
+                chaserBurstMin: 1,
+                chaserBurstMax: 3
             }
         };
-        DIFFICULTIES.easy.chaserSpawnInterval = 560;
         DIFFICULTIES.easy.chaserSpeedBonus = 0.12;
-        DIFFICULTIES.normal.chaserSpawnInterval = 440;
         DIFFICULTIES.normal.chaserSpeedBonus = 0.3;
+
+        function randInt(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        function buildChaserPlan() {
+            const cfg = currentDifficulty || DIFFICULTIES[selectedDifficulty];
+            const count = randInt(cfg.chaserAppearMin, cfg.chaserAppearMax);
+            if (count <= 0) return [];
+            const minMeter = 170;
+            const maxMeter = GOAL_DISTANCE_METERS - 150;
+            const span = Math.max(1, maxMeter - minMeter);
+            const segment = span / count;
+            const plan = [];
+            for (let i = 0; i < count; i++) {
+                const segStart = Math.floor(minMeter + segment * i);
+                const segEnd = Math.floor(minMeter + segment * (i + 1));
+                const left = Math.max(minMeter, segStart + 24);
+                const right = Math.min(maxMeter, segEnd - 24);
+                const meter = right > left ? randInt(left, right) : left;
+                const burst = randInt(cfg.chaserBurstMin, cfg.chaserBurstMax);
+                plan.push({ meter, burst });
+            }
+            plan.sort((a, b) => a.meter - b.meter);
+            return plan;
+        }
 
         // サウンド管理（8bit風）
         const sound = {
@@ -1458,6 +1496,9 @@
             kingSpawned = false;
             pendingChaserWave = null;
             chaserWarningTimer = 0;
+            chaserSafetyTimer = 0;
+            chaserPlan = buildChaserPlan();
+            chaserPlanIndex = 0;
             obstacles.length = 0;
             projectiles.length = 0;
             chasers.length = 0;
@@ -1577,9 +1618,14 @@
                 kingSpawned = true;
             }
 
+            if (chaserSafetyTimer > 0) {
+                chaserSafetyTimer--;
+            }
+            const isChaserSafetyWindow = !!pendingChaserWave || chaserWarningTimer > 0 || chasers.length > 0 || chaserSafetyTimer > 0;
+
             // Create obstacles (more frequently for longer game)
             const kingActive = obstacles.some(ob => ob.boss);
-            if (!kingActive && frameCount % currentDifficulty.obstacleSpawnInterval === 0) {
+            if (!kingActive && !isChaserSafetyWindow && frameCount % currentDifficulty.obstacleSpawnInterval === 0) {
                 const type = obstacleTypes[Math.floor(Math.random() * obstacleTypes.length)];
                 // 奥にいる敵（櫓/気球）は弓兵のみ
                 const canBeElevated = type.name === 'archer';
@@ -1613,13 +1659,13 @@
                 });
             }
 
-            // 騎馬追手の予告「！」を出した後に、後方から出現
-            const warningPhase = currentDifficulty.chaserSpawnInterval - CHASER_WARNING_LEAD;
-            if (!pendingChaserWave && frameCount % currentDifficulty.chaserSpawnInterval === warningPhase) {
-                if (Math.random() > 0.42) {
+            // 難易度別の騎馬プランに従ってランダムタイミング出現
+            if (!pendingChaserWave && chasers.length === 0 && chaserPlanIndex < chaserPlan.length) {
+                const nextWave = chaserPlan[chaserPlanIndex];
+                if (distance >= Math.max(0, nextWave.meter - 28)) {
                     pendingChaserWave = {
                         timer: CHASER_WARNING_LEAD,
-                        burst: 1 + Math.floor(Math.random() * 2)
+                        burst: nextWave.burst
                     };
                     chaserWarningTimer = CHASER_WARNING_LEAD;
                 }
@@ -1629,8 +1675,10 @@
                 chaserWarningTimer = pendingChaserWave.timer;
                 if (pendingChaserWave.timer <= 0) {
                     spawnChaserWave(pendingChaserWave.burst);
+                    chaserPlanIndex++;
                     pendingChaserWave = null;
                     chaserWarningTimer = 0;
+                    chaserSafetyTimer = 70;
                 }
             }
 
@@ -1658,7 +1706,7 @@
                 }
 
                 // 弓兵は一定間隔で矢を発射
-                if (obstacles[i].type.name === 'archer' && frameCount % currentDifficulty.archerFireInterval === 0) {
+                if (!isChaserSafetyWindow && obstacles[i].type.name === 'archer' && frameCount % currentDifficulty.archerFireInterval === 0) {
                     if (projectiles.length >= PERF.maxProjectiles) continue;
                     const isBackgroundArcher = !!obstacles[i].elevatedType;
                     const spawnX = obstacles[i].x + obstacles[i].width;
