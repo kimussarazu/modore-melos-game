@@ -440,6 +440,16 @@
         let kingSpawned = false;
         let selectedDifficulty = 'normal';
         let currentDifficulty = null;
+        const LOW_SPEC_MODE = window.matchMedia('(max-width: 900px)').matches;
+        const PERF = {
+            terrainStep: LOW_SPEC_MODE ? 12 : 8,
+            groundStripeHeight: LOW_SPEC_MODE ? 14 : 18,
+            textureStep: LOW_SPEC_MODE ? 24 : 16,
+            textureSize: LOW_SPEC_MODE ? 6 : 8,
+            maxProjectiles: LOW_SPEC_MODE ? 24 : 40,
+            maxChasers: LOW_SPEC_MODE ? 7 : 12,
+            textureFrameSkip: LOW_SPEC_MODE ? 2 : 1
+        };
         const DIFFICULTIES = {
             easy: {
                 label: 'EASY',
@@ -543,7 +553,8 @@
 
         // Background elements
         const clouds = [];
-        for (let i = 0; i < 5; i++) {
+        const cloudCount = LOW_SPEC_MODE ? 3 : 5;
+        for (let i = 0; i < cloudCount; i++) {
             clouds.push({
                 x: Math.random() * canvas.width,
                 y: Math.random() * 150 + 20,
@@ -710,32 +721,38 @@
         }
 
         function drawTerrain() {
-            // ピクセル感を維持するため8pxごとの段差で描画
-            for (let x = 0; x < canvas.width; x += 8) {
+            // ピクセル感を維持しつつ描画負荷を抑える
+            const step = PERF.terrainStep;
+            const stripeH = PERF.groundStripeHeight;
+            for (let x = 0; x < canvas.width; x += step) {
                 const groundY = getGroundLevelAt(x);
 
                 // 草地
                 ctx.fillStyle = '#6ba353';
-                ctx.fillRect(x, 0, 8, groundY);
+                ctx.fillRect(x, 0, step, groundY);
 
                 // 地面の濃淡
                 ctx.fillStyle = (Math.floor((x - terrainScroll) / 32) % 2 === 0) ? '#5a9345' : '#6ba353';
-                ctx.fillRect(x, groundY - 18, 8, 18);
+                ctx.fillRect(x, groundY - stripeH, step, stripeH);
 
                 // 土
                 ctx.fillStyle = '#8b7355';
-                ctx.fillRect(x, groundY, 8, canvas.height - groundY);
+                ctx.fillRect(x, groundY, step, canvas.height - groundY);
             }
 
             // 土テクスチャ（決定的パターンでちらつき防止）
-            for (let x = 0; x < canvas.width; x += 16) {
-                const groundY = getGroundLevelAt(x);
-                for (let y = groundY + 8; y < canvas.height; y += 16) {
-                    const worldCellX = Math.floor((x - terrainScroll) / 16);
-                    const cellY = Math.floor(y / 16);
-                    if ((worldCellX + cellY) % 5 === 0) {
-                        ctx.fillStyle = '#7a6449';
-                        ctx.fillRect(x, y, 8, 8);
+            if (frameCount % PERF.textureFrameSkip === 0) {
+                const texStep = PERF.textureStep;
+                const texSize = PERF.textureSize;
+                for (let x = 0; x < canvas.width; x += texStep) {
+                    const groundY = getGroundLevelAt(x);
+                    for (let y = groundY + texSize; y < canvas.height; y += texStep) {
+                        const worldCellX = Math.floor((x - terrainScroll) / texStep);
+                        const cellY = Math.floor(y / texStep);
+                        if ((worldCellX + cellY) % 5 === 0) {
+                            ctx.fillStyle = '#7a6449';
+                            ctx.fillRect(x, y, texSize, texSize);
+                        }
                     }
                 }
             }
@@ -743,6 +760,7 @@
 
         function spawnChaserWave(burstCount) {
             for (let j = 0; j < burstCount; j++) {
+                if (chasers.length >= PERF.maxChasers) break;
                 const startX = canvas.width + 92 + j * 64 + Math.random() * 24;
                 const riderHeight = 34;
                 const groundY = getGroundLevelAt(startX + 24);
@@ -1285,6 +1303,7 @@
 
                 // 弓兵は一定間隔で矢を発射
                 if (obstacles[i].type.name === 'archer' && frameCount % currentDifficulty.archerFireInterval === 0) {
+                    if (projectiles.length >= PERF.maxProjectiles) continue;
                     const isBackgroundArcher = !!obstacles[i].elevatedType;
                     const spawnX = obstacles[i].x + obstacles[i].width;
                     const spawnY = isBackgroundArcher
@@ -1323,9 +1342,11 @@
 
                 // 王様ラスボスは強化弾を連射
                 if (obstacles[i].boss && frameCount % 56 === 0) {
+                    if (projectiles.length >= PERF.maxProjectiles) continue;
                     const baseX = obstacles[i].x + obstacles[i].width;
                     const baseY = obstacles[i].y + 20;
                     for (let s = -1; s <= 1; s++) {
+                        if (projectiles.length >= PERF.maxProjectiles) break;
                         projectiles.push({
                             x: baseX,
                             y: baseY + s * 10,
