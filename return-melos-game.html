@@ -682,7 +682,9 @@
             creatorLetterTs: 0,
             adminPubkey: '',
             siteLocked: false,
-            siteLockTs: 0
+            siteLockTs: 0,
+            auditConfigTs: 0,
+            auditApiBase: ''
         };
         const NOSTR_RELAYS = [
             'wss://relay.damus.io',
@@ -693,7 +695,9 @@
         const NOSTR_MOD_D = 'melos-moderation-v1';
         const NOSTR_LETTER_D = 'melos-creator-letter-v1';
         const NOSTR_SITE_LOCK_D = 'melos-site-lock-v1';
+        const NOSTR_AUDIT_CONFIG_D = 'melos-audit-config-v1';
         const ADMIN_PUBKEY_STORAGE_KEY = 'melos_admin_pubkey';
+        const AUDIT_API_BASE_KEY = 'melos_audit_api_base';
         const BOARD_RESET_TS = Date.parse('2026-03-04T14:04:47Z');
         const CHAT_BLOCK_PATTERNS = [
             // 下ネタ
@@ -1055,6 +1059,27 @@
             return CHAT_BLOCK_PATTERNS.some((pattern) => pattern.test(source) || pattern.test(normalized));
         }
 
+        function getAuditApiBase() {
+            return String(chatState.auditApiBase || localStorage.getItem(AUDIT_API_BASE_KEY) || '')
+                .trim()
+                .replace(/\/+$/, '');
+        }
+
+        async function postAuditLog(payload) {
+            const base = getAuditApiBase();
+            if (!base) return;
+            try {
+                await fetch(`${base}/api/audit/log`, {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify(payload),
+                    keepalive: true
+                });
+            } catch {
+                // 監査ログ送信失敗はゲーム進行を止めない
+            }
+        }
+
         function bytesToHex(bytes) {
             return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
         }
@@ -1210,6 +1235,26 @@
             updateSiteLockUi();
         }
 
+        function ingestAuditConfigEvent(event) {
+            if (!event || !event.id || chatState.seenEventIds.has(event.id)) return;
+            chatState.seenEventIds.add(event.id);
+            if (!isTrustedAdminEvent(event)) return;
+            let payload = null;
+            try {
+                payload = JSON.parse(event.content || '{}');
+            } catch {
+                payload = null;
+            }
+            const eventTs = (event.created_at || Math.floor(Date.now() / 1000)) * 1000;
+            if (eventTs < chatState.auditConfigTs) return;
+            chatState.auditConfigTs = eventTs;
+            const base = String(payload && payload.auditApiBase ? payload.auditApiBase : '').trim().replace(/\/+$/, '');
+            chatState.auditApiBase = base;
+            if (base) {
+                localStorage.setItem(AUDIT_API_BASE_KEY, base);
+            }
+        }
+
         function ingestDeletionEvent(event) {
             if (!event || !event.id || chatState.seenEventIds.has(event.id)) return;
             chatState.seenEventIds.add(event.id);
@@ -1245,6 +1290,10 @@
                 }
                 if (dValue === NOSTR_SITE_LOCK_D) {
                     ingestSiteLockEvent(event);
+                    return;
+                }
+                if (dValue === NOSTR_AUDIT_CONFIG_D) {
+                    ingestAuditConfigEvent(event);
                 }
                 return;
             }
@@ -1282,7 +1331,7 @@
                 try {
                     metaEvents = await chatState.pool.list(NOSTR_RELAYS, [{
                         kinds: [30078],
-                        '#d': [NOSTR_MOD_D, NOSTR_LETTER_D, NOSTR_SITE_LOCK_D],
+                        '#d': [NOSTR_MOD_D, NOSTR_LETTER_D, NOSTR_SITE_LOCK_D, NOSTR_AUDIT_CONFIG_D],
                         limit: 120
                     }]);
                 } catch {
@@ -1404,6 +1453,14 @@
 
             if (containsBlockedWord(name, text)) {
                 chatStatus.textContent = '不適切な表現が含まれるため送信できません';
+                void postAuditLog({
+                    action: 'chat_blocked',
+                    roomTag: NOSTR_ROOM_TAG,
+                    uid: chatState.selfId || '',
+                    pubkey: chatState.pubkey || '',
+                    name: name || '名無しメロス',
+                    text
+                });
                 return;
             }
 
@@ -1432,6 +1489,15 @@
                 uid: chatState.selfId,
                 authorPubkey: chatState.pubkey
             }, signed.id);
+            void postAuditLog({
+                action: 'chat_post',
+                roomTag: NOSTR_ROOM_TAG,
+                uid: chatState.selfId || '',
+                pubkey: chatState.pubkey || '',
+                eventId: signed.id,
+                name: name || '名無しメロス',
+                text
+            });
             chatState.pool.publish(NOSTR_RELAYS, signed);
             chatInput.value = '';
             chatState.lastEnterAt = 0;
@@ -1451,6 +1517,14 @@
             const signed = NostrTools.finalizeEvent(deleteTemplate, chatState.seckey);
             chatState.pool.publish(NOSTR_RELAYS, signed);
             applyDeletedIds([messageId]);
+            void postAuditLog({
+                action: 'chat_delete',
+                roomTag: NOSTR_ROOM_TAG,
+                uid: chatState.selfId || '',
+                pubkey: chatState.pubkey || '',
+                eventId: signed.id,
+                targetEventId: messageId
+            });
             chatStatus.textContent = 'コメントを削除しました（全体反映）';
         }
 

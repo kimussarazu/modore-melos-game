@@ -65,11 +65,24 @@
             background: rgba(20, 20, 20, 0.9);
             padding: 8px;
         }
+        #auditList {
+            max-height: 360px;
+            overflow-y: auto;
+            border: 2px solid #202020;
+            background: rgba(20, 20, 20, 0.9);
+            padding: 8px;
+            font-size: 0.9rem;
+        }
         .commentItem {
             margin-bottom: 8px;
             padding-bottom: 6px;
             border-bottom: 1px solid #2a2a2a;
             font-size: 0.95rem;
+        }
+        .auditItem {
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #2a2a2a;
         }
         .meta { color: #9ecfff; }
         .empty { color: #c6c6c6; }
@@ -95,6 +108,20 @@
             <button id="lockOffBtn" class="secondary">閉鎖を解除</button>
         </div>
         <div id="lockStatus" style="margin-top:8px; color:#ffcf9b;">閉鎖状態: 未確認</div>
+    </div>
+
+    <div class="panel">
+        <h2>監査ログ（IP・端末情報）</h2>
+        <div class="row" style="margin-bottom:8px;">
+            <input id="auditApiBaseInput" placeholder="監査APIベースURL（例: https://xxxx.workers.dev）">
+            <input id="auditTokenInput" placeholder="監査管理トークン">
+        </div>
+        <div class="row" style="margin-bottom:8px;">
+            <button id="loadAuditBtn">監査ログを取得</button>
+            <button id="saveAuditConfigBtn" class="secondary">監査設定を保存</button>
+        </div>
+        <div id="auditStatus" class="empty">監査ログ未取得</div>
+        <div id="auditList"><div class="empty">監査ログはまだ表示されていません。</div></div>
     </div>
 
     <div class="panel">
@@ -132,6 +159,9 @@
         const NOSTR_MOD_D = 'melos-moderation-v1';
         const NOSTR_LETTER_D = 'melos-creator-letter-v1';
         const NOSTR_SITE_LOCK_D = 'melos-site-lock-v1';
+        const NOSTR_AUDIT_CONFIG_D = 'melos-audit-config-v1';
+        const AUDIT_API_BASE_KEY = 'melos_audit_api_base';
+        const AUDIT_ADMIN_TOKEN_KEY = 'melos_audit_admin_token';
         const BOARD_RESET_TS = Date.parse('2026-03-04T14:04:47Z');
         const RELAY_TIMEOUT_MS = 4200;
 
@@ -143,6 +173,12 @@
         const lockOnBtn = document.getElementById('lockOnBtn');
         const lockOffBtn = document.getElementById('lockOffBtn');
         const lockStatusEl = document.getElementById('lockStatus');
+        const auditApiBaseInput = document.getElementById('auditApiBaseInput');
+        const auditTokenInput = document.getElementById('auditTokenInput');
+        const loadAuditBtn = document.getElementById('loadAuditBtn');
+        const saveAuditConfigBtn = document.getElementById('saveAuditConfigBtn');
+        const auditStatusEl = document.getElementById('auditStatus');
+        const auditListEl = document.getElementById('auditList');
         const commentList = document.getElementById('commentList');
         const selectAllBtn = document.getElementById('selectAllBtn');
         const clearSelectBtn = document.getElementById('clearSelectBtn');
@@ -167,7 +203,8 @@
             pendingLetterText: null,
             liveSub: null,
             siteLocked: false,
-            siteLockTs: 0
+            siteLockTs: 0,
+            auditLogs: []
         };
 
         function escapeHtml(text) {
@@ -223,6 +260,116 @@
             renderComments();
             letterStatusEl.textContent = '手紙状態: 未確認';
             renderSiteLockStatus();
+        }
+
+        function getAuditApiBase() {
+            return String(auditApiBaseInput.value || '').trim().replace(/\/+$/, '');
+        }
+
+        function getAuditToken() {
+            return String(auditTokenInput.value || '').trim();
+        }
+
+        function saveAuditConfig() {
+            const base = getAuditApiBase();
+            localStorage.setItem(AUDIT_API_BASE_KEY, base);
+            localStorage.setItem(AUDIT_ADMIN_TOKEN_KEY, getAuditToken());
+            auditStatusEl.textContent = '監査設定を保存しました';
+            if (state.pool && state.seckey) {
+                publishAuditConfig(base);
+            }
+        }
+
+        function maskIp(rawIp) {
+            const ip = String(rawIp || '').trim();
+            if (!ip) return '不明';
+            if (ip.includes(':')) {
+                const parts = ip.split(':').filter(Boolean);
+                return `${parts.slice(0, 3).join(':')}::`;
+            }
+            const parts = ip.split('.');
+            if (parts.length === 4) return `${parts[0]}.${parts[1]}.${parts[2]}.***`;
+            return ip;
+        }
+
+        function renderAuditLogs() {
+            const rows = Array.isArray(state.auditLogs) ? state.auditLogs : [];
+            if (rows.length === 0) {
+                auditListEl.innerHTML = '<div class="empty">監査ログはありません。</div>';
+                return;
+            }
+            auditListEl.innerHTML = rows.map((row) => {
+                const time = formatTime((row.createdAtMs || 0));
+                const action = escapeHtml(row.action || 'unknown');
+                const ipMasked = escapeHtml(maskIp(row.ipMasked || row.ip || ''));
+                const ipHash = escapeHtml(String(row.ipHash || '').slice(0, 16) || '-');
+                const name = escapeHtml(row.name || '-');
+                const text = escapeHtml(row.text || '');
+                const ua = escapeHtml(String(row.userAgent || '-').slice(0, 100));
+                const eventId = escapeHtml(row.eventId || '-');
+                const targetEventId = escapeHtml(row.targetEventId || '-');
+                const deletedMark = row.isDeleted ? ' [削除済み]' : '';
+                return `
+                    <div class="auditItem">
+                        <div class="meta">[${time}] ${action}${deletedMark}</div>
+                        <div>IP: ${ipMasked} / hash:${ipHash}</div>
+                        <div>name: ${name}</div>
+                        <div>text: ${text || '（なし）'}</div>
+                        <div>event: ${eventId}</div>
+                        <div>target: ${targetEventId}</div>
+                        <div>UA: ${ua}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function loadAuditLogs() {
+            const base = getAuditApiBase();
+            const token = getAuditToken();
+            if (!base) {
+                auditStatusEl.textContent = '監査APIベースURLを入力してください';
+                return;
+            }
+            if (!token) {
+                auditStatusEl.textContent = '監査管理トークンを入力してください';
+                return;
+            }
+            auditStatusEl.textContent = '監査ログ取得中...';
+            try {
+                const res = await fetch(`${base}/api/audit/logs?limit=240&include_deleted=1`, {
+                    headers: { 'x-admin-token': token }
+                });
+                if (!res.ok) {
+                    auditStatusEl.textContent = `監査ログ取得に失敗: HTTP ${res.status}`;
+                    return;
+                }
+                const data = await res.json();
+                state.auditLogs = Array.isArray(data.logs) ? data.logs : [];
+                auditStatusEl.textContent = `監査ログ取得完了（${state.auditLogs.length}件）`;
+                renderAuditLogs();
+            } catch (err) {
+                console.warn(err);
+                auditStatusEl.textContent = '監査ログ取得に失敗しました';
+            }
+        }
+
+        async function markAuditDeletedIds(ids) {
+            const base = getAuditApiBase();
+            const token = getAuditToken();
+            const unique = Array.from(new Set((ids || []).map((v) => String(v || '').trim()).filter(Boolean)));
+            if (!base || !token || unique.length === 0) return;
+            try {
+                await fetch(`${base}/api/audit/mark-deleted`, {
+                    method: 'POST',
+                    headers: {
+                        'content-type': 'application/json',
+                        'x-admin-token': token
+                    },
+                    body: JSON.stringify({ eventIds: unique })
+                });
+            } catch {
+                // 監査連携失敗は管理操作自体は続行
+            }
         }
 
         function hexToBytes(hex) {
@@ -374,6 +521,20 @@
                     }
                     state.siteLocked = !!(payload && payload.locked);
                     renderSiteLockStatus();
+                    return;
+                }
+                if (dValue === NOSTR_AUDIT_CONFIG_D) {
+                    let payload;
+                    try {
+                        payload = JSON.parse(event.content || '{}');
+                    } catch {
+                        payload = null;
+                    }
+                    const base = String(payload && payload.auditApiBase ? payload.auditApiBase : '').trim().replace(/\/+$/, '');
+                    if (base) {
+                        auditApiBaseInput.value = base;
+                        localStorage.setItem(AUDIT_API_BASE_KEY, base);
+                    }
                 }
             }
         }
@@ -404,7 +565,7 @@
             }];
             const metaFiltersPrimary = [{
                 kinds: [30078],
-                '#d': [NOSTR_MOD_D, NOSTR_LETTER_D, NOSTR_SITE_LOCK_D],
+                '#d': [NOSTR_MOD_D, NOSTR_LETTER_D, NOSTR_SITE_LOCK_D, NOSTR_AUDIT_CONFIG_D],
                 limit: 60
             }];
             const metaFiltersFallback = [{
@@ -512,6 +673,7 @@
             applyDeletedIds(unique);
             renderComments();
             statusEl.textContent = `${unique.length}件を削除反映しました`;
+            void markAuditDeletedIds(unique);
         }
 
         async function deleteByKeyword() {
@@ -593,6 +755,24 @@
             }, 2600);
         }
 
+        function publishAuditConfig(auditApiBase) {
+            if (!state.pool || !state.seckey) return;
+            const safeBase = String(auditApiBase || '').trim().replace(/\/+$/, '');
+            const ok = publishEvent({
+                kind: 30078,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: [
+                    ['d', NOSTR_AUDIT_CONFIG_D],
+                    ['t', NOSTR_ROOM_TAG]
+                ],
+                content: JSON.stringify({
+                    auditApiBase: safeBase
+                })
+            });
+            if (!ok) return;
+            statusEl.textContent = '監査API設定を公開しました';
+        }
+
         function publishSiteLock(locked) {
             if (!state.pool || !state.seckey) {
                 statusEl.textContent = '先に管理者として接続してください';
@@ -641,6 +821,7 @@
                 statusEl.textContent = `接続しました: ${state.pubkey.slice(0, 12)}...`;
                 await loadBoardData();
                 startRealtimeSync();
+                await loadAuditLogs();
             } catch (err) {
                 console.warn(err);
                 statusEl.textContent = '接続に失敗しました';
@@ -699,11 +880,16 @@
         });
         lockOnBtn.addEventListener('click', () => publishSiteLock(true));
         lockOffBtn.addEventListener('click', () => publishSiteLock(false));
+        loadAuditBtn.addEventListener('click', loadAuditLogs);
+        saveAuditConfigBtn.addEventListener('click', saveAuditConfig);
 
         const cachedSecret = localStorage.getItem('melos_nostr_secret');
         if (cachedSecret) {
             secretInput.value = cachedSecret;
         }
+        auditApiBaseInput.value = localStorage.getItem(AUDIT_API_BASE_KEY) || '';
+        auditTokenInput.value = localStorage.getItem(AUDIT_ADMIN_TOKEN_KEY) || '';
+        renderAuditLogs();
         renderSiteLockStatus();
     </script>
 </body>
