@@ -85,6 +85,7 @@
         </div>
         <div style="font-size:0.9rem; color:#d2d2d2; margin-top:6px;">※ 「管理者として接続」は、秘密鍵で管理者認証して削除・手紙更新を有効化します。</div>
         <div id="status">未接続</div>
+        <div id="liveStatus" style="font-size:0.86rem; color:#9ecfff;">リアルタイム: 未接続</div>
     </div>
 
     <div class="panel">
@@ -124,6 +125,7 @@
         const connectBtn = document.getElementById('connectBtn');
         const refreshBtn = document.getElementById('refreshBtn');
         const statusEl = document.getElementById('status');
+        const liveStatusEl = document.getElementById('liveStatus');
         const commentList = document.getElementById('commentList');
         const selectAllBtn = document.getElementById('selectAllBtn');
         const clearSelectBtn = document.getElementById('clearSelectBtn');
@@ -143,7 +145,8 @@
             removedEventIds: new Set(),
             adminDeletedIds: new Set(),
             letterTs: 0,
-            pendingLetterText: null
+            pendingLetterText: null,
+            liveSub: null
         };
 
         function escapeHtml(text) {
@@ -373,10 +376,37 @@
             renderComments();
 
             if (state.messages.size === 0) {
-                statusEl.textContent = '読み込み完了（0件）: まだ投稿がないか、relay側に履歴がありません';
+                statusEl.textContent = '読み込み完了（0件）: まだ投稿がないか、サーバー履歴の応答待ちです';
                 return;
             }
             statusEl.textContent = `読み込み完了（${state.messages.size}件）`;
+        }
+
+        function startRealtimeSync() {
+            if (!state.pool) return;
+            if (state.liveSub && typeof state.liveSub.close === 'function') {
+                try { state.liveSub.close(); } catch {}
+            }
+            const since = Math.floor(Date.now() / 1000) - 5;
+            state.liveSub = state.pool.subscribeMany(
+                NOSTR_RELAYS,
+                [{ kinds: [1, 5, 30078], since }],
+                {
+                    onevent(event) {
+                        const before = state.messages.size;
+                        ingestEvent(event);
+                        if (state.messages.size !== before || event.kind !== 1) {
+                            renderComments();
+                        }
+                        if (event.kind === 1) {
+                            liveStatusEl.textContent = 'リアルタイム: 新着コメントを受信しました';
+                        } else if (event.kind === 30078) {
+                            liveStatusEl.textContent = 'リアルタイム: 管理更新を受信しました';
+                        }
+                    }
+                }
+            );
+            liveStatusEl.textContent = 'リアルタイム: 接続中（自動反映）';
         }
 
         function publishEvent(template) {
@@ -455,9 +485,11 @@
                 localStorage.setItem('melos_admin_pubkey', state.pubkey);
                 statusEl.textContent = `接続しました: ${state.pubkey.slice(0, 12)}...`;
                 await loadBoardData();
+                startRealtimeSync();
             } catch (err) {
                 console.warn(err);
                 statusEl.textContent = '接続に失敗しました';
+                liveStatusEl.textContent = 'リアルタイム: 接続失敗';
             }
         });
 
