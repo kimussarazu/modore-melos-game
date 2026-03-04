@@ -278,16 +278,28 @@
                 state.removedEventIds.clear();
                 state.adminDeletedIds.clear();
                 state.letterTs = 0;
-                const events = await state.pool.list(NOSTR_RELAYS, [{
+                const boardEvents = await state.pool.list(NOSTR_RELAYS, [{
                     kinds: [1, 5],
                     '#t': [NOSTR_ROOM_TAG],
                     limit: 280
-                }, {
-                    kinds: [30078],
-                    '#d': [NOSTR_MOD_D, NOSTR_LETTER_D],
-                    limit: 120
                 }]);
-                events.forEach(ingestEvent);
+                boardEvents.forEach(ingestEvent);
+
+                // Some relays reject #d filter queries; fallback to broad fetch for reliability.
+                let metaEvents = [];
+                try {
+                    metaEvents = await state.pool.list(NOSTR_RELAYS, [{
+                        kinds: [30078],
+                        '#d': [NOSTR_MOD_D, NOSTR_LETTER_D],
+                        limit: 120
+                    }]);
+                } catch {
+                    metaEvents = await state.pool.list(NOSTR_RELAYS, [{
+                        kinds: [30078],
+                        limit: 160
+                    }]);
+                }
+                metaEvents.forEach(ingestEvent);
                 renderComments();
                 statusEl.textContent = `読み込み完了（${state.messages.size}件）`;
             } catch (err) {

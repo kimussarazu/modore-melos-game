@@ -1129,12 +1129,24 @@
                     kinds: [1, 5],
                     '#t': [NOSTR_ROOM_TAG],
                     limit: 220
-                }, {
-                    kinds: [30078],
-                    '#d': [NOSTR_MOD_D, NOSTR_LETTER_D],
-                    limit: 120
                 }]);
                 events.forEach(ingestNostrEvent);
+
+                // #d filter is not uniformly supported by all relays.
+                let metaEvents = [];
+                try {
+                    metaEvents = await chatState.pool.list(NOSTR_RELAYS, [{
+                        kinds: [30078],
+                        '#d': [NOSTR_MOD_D, NOSTR_LETTER_D],
+                        limit: 120
+                    }]);
+                } catch {
+                    metaEvents = await chatState.pool.list(NOSTR_RELAYS, [{
+                        kinds: [30078],
+                        limit: 160
+                    }]);
+                }
+                metaEvents.forEach(ingestNostrEvent);
             } catch (error) {
                 console.warn('Chat refresh failed:', error);
             }
@@ -1172,7 +1184,7 @@
                     NOSTR_RELAYS,
                     [
                         { kinds: [1, 5], '#t': [NOSTR_ROOM_TAG], limit: 220 },
-                        { kinds: [30078], '#d': [NOSTR_MOD_D, NOSTR_LETTER_D], limit: 120 }
+                        { kinds: [30078], limit: 120 }
                     ],
                     {
                         onevent(event) {
