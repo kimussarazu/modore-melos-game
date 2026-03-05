@@ -204,7 +204,7 @@
             right: -2px;
             width: 146px;
             min-height: 0;
-            padding: 6px 6px 5px;
+            padding: 5px 6px 2px;
             background: rgba(245, 236, 200, 0.9);
             border: 3px solid #7b6b3f;
             color: #2a1f12;
@@ -231,11 +231,11 @@
 
         #creatorLetterTitle {
             font-size: 0.86em;
-            margin-bottom: 2px;
+            margin: 0 0 1px;
             color: #593d1f;
         }
         #creatorLetterBody {
-            margin-bottom: 3px;
+            margin: 0;
         }
 
         #chatTitle {
@@ -328,8 +328,9 @@
         }
         #letterSeenWrap {
             display: none;
-            margin-top: 3px;
-            padding-top: 4px;
+            margin-top: 2px;
+            padding-top: 2px;
+            padding-bottom: 0;
             border-top: 1px dashed #7b6b3f;
             color: #3b2b18;
             font-size: 0.84em;
@@ -339,6 +340,11 @@
             align-items: center;
             gap: 5px;
             cursor: pointer;
+            margin: 0;
+            line-height: 1.1;
+        }
+        #letterSeenCheckbox {
+            margin: 0;
         }
 
         .chatMessage {
@@ -1302,7 +1308,8 @@
 
         function renderCreatorLetter() {
             if (!creatorLetterBody) return;
-            const text = (chatState.creatorLetter || '').trim();
+            const raw = String(chatState.creatorLetter || '').trim();
+            const text = raw.replace(/^\n+/, '');
             creatorLetterBody.textContent = text || '（まだ ありません）';
             updateLetterNoticeUi();
         }
