@@ -269,6 +269,19 @@
             margin-bottom: 8px;
             word-break: break-word;
         }
+        #chatJumpLatestButton {
+            display: none;
+            margin: -2px 0 8px auto;
+            padding: 6px 8px;
+            font-size: 0.54em;
+            border: 2px solid #202020;
+            background: #f0c533;
+            color: #2a1f00;
+            box-shadow: 2px 2px 0 #000;
+        }
+        #chatJumpLatestButton.show {
+            display: inline-block;
+        }
 
         .chatMessage {
             margin-bottom: 4px;
@@ -475,6 +488,7 @@
                 <div id="chatBoardContent">
                     <div id="chatMain">
                         <div id="chatMessages"></div>
+                        <button id="chatJumpLatestButton">最新の書き込みにジャンプ</button>
                         <div id="chatControls">
                             <input id="chatNameInput" class="chatInput" maxlength="12" placeholder="名前">
                             <input id="chatInput" class="chatInput" maxlength="80" placeholder="メッセージ（80字まで）">
@@ -532,6 +546,7 @@
         const chatBoardContent = document.getElementById('chatBoardContent');
         const chatLockedNotice = document.getElementById('chatLockedNotice');
         const chatMessages = document.getElementById('chatMessages');
+        const chatJumpLatestButton = document.getElementById('chatJumpLatestButton');
         const chatNameInput = document.getElementById('chatNameInput');
         const chatInput = document.getElementById('chatInput');
         const chatSendButton = document.getElementById('chatSendButton');
@@ -700,7 +715,9 @@
             auditApiBase: '',
             liveSub: null,
             healthTimer: null,
-            lastSyncAt: 0
+            lastSyncAt: 0,
+            lastRenderedLatestKey: '',
+            pendingLatestCount: 0
         };
         const NOSTR_RELAYS = [
             'wss://relay.damus.io',
@@ -1133,8 +1150,10 @@
             chatInput.disabled = locked;
             chatSendButton.disabled = locked;
             chatRefreshButton.disabled = locked;
+            chatJumpLatestButton.disabled = locked;
             if (locked) {
                 chatStatus.textContent = '掲示板はメンテナンス中のため停止しています';
+                chatJumpLatestButton.classList.remove('show');
             } else {
                 renderChatMessages();
                 renderCreatorLetter();
@@ -1148,14 +1167,23 @@
         }
 
         function renderChatMessages() {
+            const prevTop = chatMessages.scrollTop;
+            const prevHeight = chatMessages.scrollHeight;
+            const nearBottomBefore = isChatNearBottom();
             const sorted = Array.from(chatState.messages.values())
                 .sort((a, b) => (a.ts || 0) - (b.ts || 0))
                 .slice(-50);
 
             if (sorted.length === 0) {
                 chatMessages.innerHTML = '<div class="chatMessage">まだ投稿がありません。</div>';
+                chatState.lastRenderedLatestKey = '';
+                chatState.pendingLatestCount = 0;
+                chatJumpLatestButton.classList.remove('show');
                 return;
             }
+            const latest = sorted[sorted.length - 1];
+            const latestKey = `${latest.key || ''}:${latest.ts || 0}`;
+            const hasNewLatest = !!chatState.lastRenderedLatestKey && latestKey !== chatState.lastRenderedLatestKey;
 
             chatMessages.innerHTML = sorted.map(msg => {
                 const safeName = escapeHtml(msg.name || '名無しメロス');
@@ -1167,7 +1195,38 @@
                     : '';
                 return `<div class="chatMessage"><span class="chatMeta">[${time}] ${safeName}:</span> ${safeText}${actions}</div>`;
             }).join('');
+            if (nearBottomBefore || !chatState.lastRenderedLatestKey) {
+                scrollChatToLatest();
+            } else {
+                const heightDelta = chatMessages.scrollHeight - prevHeight;
+                chatMessages.scrollTop = prevTop + Math.max(0, heightDelta);
+                if (hasNewLatest) {
+                    chatState.pendingLatestCount++;
+                    updateJumpLatestButton();
+                }
+            }
+            chatState.lastRenderedLatestKey = latestKey;
+        }
+
+        function isChatNearBottom() {
+            const gap = chatMessages.scrollHeight - (chatMessages.scrollTop + chatMessages.clientHeight);
+            return gap <= 10;
+        }
+
+        function updateJumpLatestButton() {
+            if (chatState.pendingLatestCount <= 0 || isChatNearBottom()) {
+                chatJumpLatestButton.classList.remove('show');
+                chatJumpLatestButton.textContent = '最新の書き込みにジャンプ';
+                return;
+            }
+            chatJumpLatestButton.classList.add('show');
+            chatJumpLatestButton.textContent = `最新の書き込みにジャンプ（${chatState.pendingLatestCount}件）`;
+        }
+
+        function scrollChatToLatest() {
             chatMessages.scrollTop = chatMessages.scrollHeight;
+            chatState.pendingLatestCount = 0;
+            updateJumpLatestButton();
         }
 
         function hasValidDeleteClaim(messageId, authorPubkey) {
@@ -1639,6 +1698,15 @@
             if (target.dataset.action !== 'delete') return;
             const key = target.dataset.key || '';
             deleteOwnMessage(key);
+        });
+        chatMessages.addEventListener('scroll', () => {
+            if (isChatNearBottom()) {
+                chatState.pendingLatestCount = 0;
+            }
+            updateJumpLatestButton();
+        });
+        chatJumpLatestButton.addEventListener('click', () => {
+            scrollChatToLatest();
         });
         chatRefreshButton.addEventListener('click', () => {
             if (chatState.siteLocked) {
