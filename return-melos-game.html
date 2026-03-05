@@ -262,6 +262,8 @@
             height: 120px;
             overflow-y: scroll;
             scrollbar-gutter: stable;
+            scrollbar-width: thin;
+            scrollbar-color: #7a6c4c #151515;
             background: rgba(20, 20, 20, 0.8);
             border: 2px solid #202020;
             padding: 6px;
@@ -269,6 +271,20 @@
             line-height: 1.5;
             margin-bottom: 8px;
             word-break: break-word;
+        }
+        #chatMessages::-webkit-scrollbar {
+            width: 12px;
+        }
+        #chatMessages::-webkit-scrollbar-track {
+            background: #151515;
+            border-left: 1px solid #2a2a2a;
+        }
+        #chatMessages::-webkit-scrollbar-thumb {
+            background: #7a6c4c;
+            border: 2px solid #151515;
+        }
+        #chatMessages::-webkit-scrollbar-thumb:hover {
+            background: #92815a;
         }
         #chatJumpLatestButton {
             display: none;
