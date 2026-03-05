@@ -247,6 +247,16 @@
             margin-bottom: 6px;
             min-height: 10px;
         }
+        #chatLockedNotice {
+            display: none;
+            padding: 7px 8px;
+            margin-bottom: 6px;
+            border: 2px solid #7d1f1f;
+            background: rgba(70, 0, 0, 0.45);
+            color: #ffd8d8;
+            font-size: 0.56em;
+            line-height: 1.6;
+        }
 
         #chatMessages {
             height: 120px;
@@ -461,6 +471,7 @@
             <div id="chatBoard">
                 <div id="chatTitle">歴代メロスの掲示板</div>
                 <div id="chatStatus">接続準備中...</div>
+                <div id="chatLockedNotice">メンテナンス中のため、掲示板は停止しています。</div>
                 <div id="chatBoardContent">
                     <div id="chatMain">
                         <div id="chatMessages"></div>
@@ -518,6 +529,8 @@
         const normalButton = document.getElementById('normalButton');
         const hardButton = document.getElementById('hardButton');
         const chatStatus = document.getElementById('chatStatus');
+        const chatBoardContent = document.getElementById('chatBoardContent');
+        const chatLockedNotice = document.getElementById('chatLockedNotice');
         const chatMessages = document.getElementById('chatMessages');
         const chatNameInput = document.getElementById('chatNameInput');
         const chatInput = document.getElementById('chatInput');
@@ -1107,6 +1120,22 @@
                     siteLockNotice.textContent = 'ただいま きんきゅうメンテナンスちゅうです。しばらく まってください。';
                 }
             }
+            if (chatBoardContent) {
+                chatBoardContent.style.display = locked ? 'none' : 'flex';
+            }
+            if (chatLockedNotice) {
+                chatLockedNotice.style.display = locked ? 'block' : 'none';
+            }
+            chatNameInput.disabled = locked;
+            chatInput.disabled = locked;
+            chatSendButton.disabled = locked;
+            chatRefreshButton.disabled = locked;
+            if (locked) {
+                chatStatus.textContent = '掲示板はメンテナンス中のため停止しています';
+            } else {
+                renderChatMessages();
+                renderCreatorLetter();
+            }
             startButton.disabled = locked;
             startButton.textContent = locked ? 'いまは あそべません' : 'スタート';
             if (locked && gameRunning) {
@@ -1448,6 +1477,10 @@
         }
 
         function sendChatMessage() {
+            if (chatState.siteLocked) {
+                chatStatus.textContent = 'メンテナンス中のため投稿できません';
+                return;
+            }
             const name = (chatNameInput.value || '名無しメロス').trim().slice(0, 12);
             const text = (chatInput.value || '').trim().slice(0, 80);
             if (!text) return;
@@ -1563,6 +1596,10 @@
             deleteOwnMessage(key);
         });
         chatRefreshButton.addEventListener('click', () => {
+            if (chatState.siteLocked) {
+                chatStatus.textContent = 'メンテナンス中のため掲示板は非表示です';
+                return;
+            }
             refreshChatMessages();
             chatStatus.textContent = '掲示板を更新しました';
         });
