@@ -203,14 +203,14 @@
             top: -6px;
             right: -2px;
             width: 146px;
-            min-height: 110px;
-            padding: 8px;
+            min-height: 0;
+            padding: 6px 6px 5px;
             background: rgba(245, 236, 200, 0.9);
             border: 3px solid #7b6b3f;
             color: #2a1f12;
             box-shadow: 3px 4px 0 #000;
             font-size: 0.56em;
-            line-height: 1.45;
+            line-height: 1.35;
             white-space: pre-wrap;
             word-break: break-word;
             transform: rotate(1.6deg);
@@ -231,8 +231,11 @@
 
         #creatorLetterTitle {
             font-size: 0.86em;
-            margin-bottom: 5px;
+            margin-bottom: 2px;
             color: #593d1f;
+        }
+        #creatorLetterBody {
+            margin-bottom: 3px;
         }
 
         #chatTitle {
@@ -325,8 +328,8 @@
         }
         #letterSeenWrap {
             display: none;
-            margin-top: 6px;
-            padding-top: 6px;
+            margin-top: 3px;
+            padding-top: 4px;
             border-top: 1px dashed #7b6b3f;
             color: #3b2b18;
             font-size: 0.84em;
@@ -1243,8 +1246,9 @@
                 return;
             }
             const roomTag = encodeURIComponent(NOSTR_ROOM_TAG);
+            const deviceUid = encodeURIComponent(String(chatState.selfId || localStorage.getItem('melos_chat_uid') || ''));
             try {
-                const res = await fetch(`${base}/api/audit/melos-number?room_tag=${roomTag}&_=${Date.now()}`, {
+                const res = await fetch(`${base}/api/audit/melos-number?room_tag=${roomTag}&uid=${deviceUid}&_=${Date.now()}`, {
                     cache: 'no-store'
                 });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1638,7 +1642,6 @@
             if (chatState.initialized) return;
             chatState.initialized = true;
             updateMelosOrdinalText(0);
-            refreshMelosOrdinal();
             updateLetterNoticeUi();
 
             const savedName = localStorage.getItem('melos_chat_name');
@@ -1649,6 +1652,7 @@
                 localStorage.setItem('melos_chat_uid', savedId);
             }
             chatState.selfId = savedId;
+            refreshMelosOrdinal();
 
             if (typeof NostrTools === 'undefined') {
                 chatStatus.textContent = '掲示板接続に失敗しました（オフライン）';

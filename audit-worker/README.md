@@ -66,7 +66,7 @@ wrangler deploy
 ## API
 
 - `POST /api/audit/log` 投稿/削除ログ受信（公開）
-- `GET /api/audit/melos-number?room_tag=modore-melos-board-v1` 同一IPに同一の「○人目メロス番号」を返す（公開）
+- `GET /api/audit/melos-number?room_tag=modore-melos-board-v1&uid=...` 同一端末UID（なければIP）に同一の「○人目メロス番号」を返す（公開）
 - `POST /api/letter/ack` プレイ側の「手紙を確認した」チェックを記録（公開）
 - `GET /api/letter/ack-count?room_tag=modore-melos-board-v1&letter_ts=...` 現在手紙の確認人数を取得（管理API、`x-admin-token` 必須）
 - `GET /api/audit/logs?limit=240&include_deleted=1` 管理ログ閲覧（`x-admin-token` 必須）

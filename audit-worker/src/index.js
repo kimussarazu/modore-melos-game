@@ -159,11 +159,14 @@ export default {
 
     if (url.pathname === '/api/audit/melos-number' && request.method === 'GET') {
       const roomTag = toSafeText(url.searchParams.get('room_tag') || 'modore-melos-board-v1', 64);
+      const uidRaw = toSafeText(url.searchParams.get('uid') || '', 128);
       const ip =
         request.headers.get('cf-connecting-ip') ||
         request.headers.get('x-forwarded-for') ||
         'unknown';
       const ipHash = await sha256Hex(`${ip}|${env.IP_SALT || 'fallback_salt'}`);
+      const visitorSource = uidRaw ? `uid:${uidRaw}` : `ip:${ipHash}`;
+      const visitorHash = await sha256Hex(`${visitorSource}|${env.IP_SALT || 'fallback_salt'}`);
       const nowMs = Date.now();
 
       await ensureMelosVisitorsTable(env);
@@ -173,7 +176,7 @@ export default {
            FROM melos_visitors
           WHERE room_tag = ? AND ip_hash = ?
           LIMIT 1`
-      ).bind(roomTag, ipHash).first();
+      ).bind(roomTag, visitorHash).first();
       if (existing && Number(existing.melos_number) > 0) {
         return json({ ok: true, roomTag, melosNumber: Number(existing.melos_number) });
       }
@@ -190,7 +193,7 @@ export default {
           await env.DB.prepare(
             `INSERT INTO melos_visitors (room_tag, ip_hash, melos_number, assigned_at_ms)
              VALUES (?, ?, ?, ?)`
-          ).bind(roomTag, ipHash, nextNumber, nowMs).run();
+          ).bind(roomTag, visitorHash, nextNumber, nowMs).run();
           assigned = nextNumber;
           break;
         } catch {
@@ -199,7 +202,7 @@ export default {
                FROM melos_visitors
               WHERE room_tag = ? AND ip_hash = ?
               LIMIT 1`
-          ).bind(roomTag, ipHash).first();
+          ).bind(roomTag, visitorHash).first();
           if (retryExisting && Number(retryExisting.melos_number) > 0) {
             assigned = Number(retryExisting.melos_number);
             break;
