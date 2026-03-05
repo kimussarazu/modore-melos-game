@@ -2256,13 +2256,13 @@
                     ctx.fillStyle = urgent ? '#ffb347' : '#ffe173';
                     ctx.fillRect(warningX + 4, warningY + 4, 62, 44);
 
-                    // 右から来る向きのミニ馬シルエット
+                    // 左向きのミニ馬シルエット（本体の進行方向に合わせる）
                     ctx.fillStyle = '#4a2b19';
-                    ctx.fillRect(warningX + 10, warningY + 28, 20, 8);
-                    ctx.fillRect(warningX + 28, warningY + 25, 8, 6);
-                    ctx.fillRect(warningX + 13, warningY + 36, 3, 6);
-                    ctx.fillRect(warningX + 21, warningY + 36, 3, 6);
-                    ctx.fillRect(warningX + 31, warningY + 36, 3, 6);
+                    ctx.fillRect(warningX + 24, warningY + 28, 20, 8);
+                    ctx.fillRect(warningX + 16, warningY + 25, 8, 6);
+                    ctx.fillRect(warningX + 27, warningY + 36, 3, 6);
+                    ctx.fillRect(warningX + 35, warningY + 36, 3, 6);
+                    ctx.fillRect(warningX + 17, warningY + 36, 3, 6);
 
                     // 強調マーク
                     ctx.fillStyle = '#8b0000';
