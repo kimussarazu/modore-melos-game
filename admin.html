@@ -337,9 +337,10 @@
             state.siteLocked = false;
             state.letterAckCount = 0;
             state.letterAckTs = 0;
-            letterInput.value = '';
+            const cachedLetter = localStorage.getItem(LETTER_CACHE_KEY);
+            letterInput.value = cachedLetter == null ? '' : String(cachedLetter).slice(0, 220);
             renderComments();
-            letterStatusEl.textContent = '手紙状態: 未確認';
+            letterStatusEl.textContent = letterInput.value.trim() ? '手紙状態: キャッシュ表示' : '手紙状態: 未確認';
             letterAckStatusEl.textContent = '手紙確認チェック人数: 未取得';
             renderSiteLockStatus();
         }

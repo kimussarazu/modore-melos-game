@@ -806,6 +806,8 @@
         const AUDIT_API_BASE_KEY = 'melos_audit_api_base';
         const MELOS_NUMBER_CACHE_KEY = 'melos_visitor_number_v1';
         const LETTER_ACK_TS_KEY = 'melos_letter_ack_ts_v1';
+        const PLAY_LETTER_CACHE_KEY = 'melos_play_letter_cache_v1';
+        const PLAY_LETTER_TS_CACHE_KEY = 'melos_play_letter_ts_v1';
         const DEFAULT_AUDIT_API_BASE = 'https://melos-audit-worker.melos-audit-kimussarazu.workers.dev';
         const BOARD_RESET_TS = Date.parse('2026-03-04T14:04:47Z');
         const CHAT_BLOCK_PATTERNS = [
@@ -1314,6 +1316,16 @@
             updateLetterNoticeUi();
         }
 
+        function loadCachedCreatorLetter() {
+            const cachedText = localStorage.getItem(PLAY_LETTER_CACHE_KEY);
+            const cachedTs = Number(localStorage.getItem(PLAY_LETTER_TS_CACHE_KEY) || 0);
+            if (cachedText == null) return;
+            chatState.creatorLetter = String(cachedText).slice(0, 220);
+            if (Number.isFinite(cachedTs) && cachedTs > 0) {
+                chatState.creatorLetterTs = cachedTs;
+            }
+        }
+
         function updateSiteLockUi() {
             const locked = !!chatState.siteLocked;
             if (siteLockNotice) {
@@ -1489,6 +1501,8 @@
             if (eventTs < chatState.creatorLetterTs) return;
             chatState.creatorLetter = String(payload.text || '').slice(0, 220);
             chatState.creatorLetterTs = eventTs;
+            localStorage.setItem(PLAY_LETTER_CACHE_KEY, chatState.creatorLetter);
+            localStorage.setItem(PLAY_LETTER_TS_CACHE_KEY, String(eventTs));
             renderCreatorLetter();
         }
 
@@ -1940,6 +1954,7 @@
             await prepareAudio();
             toggleMute();
         });
+        loadCachedCreatorLetter();
         renderCreatorLetter();
 
         async function prepareAudio() {
