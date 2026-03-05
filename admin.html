@@ -177,6 +177,7 @@
         <div class="row" style="margin-bottom:8px;">
             <button id="loadAuditBtn">監査ログを取得</button>
             <button id="saveAuditConfigBtn" class="secondary">監査設定を保存</button>
+            <button id="toggleIpViewBtn" class="secondary">IPをフル表示</button>
         </div>
         <div id="auditStatus" class="empty">監査ログ未取得</div>
         <div id="auditList"><div class="empty">監査ログはまだ表示されていません。</div></div>
@@ -238,6 +239,7 @@
         const auditTokenInput = document.getElementById('auditTokenInput');
         const loadAuditBtn = document.getElementById('loadAuditBtn');
         const saveAuditConfigBtn = document.getElementById('saveAuditConfigBtn');
+        const toggleIpViewBtn = document.getElementById('toggleIpViewBtn');
         const auditStatusEl = document.getElementById('auditStatus');
         const auditListEl = document.getElementById('auditList');
         const commentList = document.getElementById('commentList');
@@ -268,7 +270,8 @@
             siteLockTs: 0,
             auditLogs: [],
             autoRefreshTimer: null,
-            autoRefreshBusy: false
+            autoRefreshBusy: false,
+            showFullIp: false
         };
         const AUTO_REFRESH_MS = 15000;
 
@@ -373,7 +376,11 @@
                 const createdAt = row.createdAtMs || row.created_at_ms || 0;
                 const time = formatTime(createdAt);
                 const action = escapeHtml(row.action || 'unknown');
-                const ipMasked = escapeHtml(maskIp(row.ipMasked || row.ip_masked || row.ip || ''));
+                const rawIp = String(row.ip || '').trim();
+                const ipForView = state.showFullIp
+                    ? (rawIp || row.ipMasked || row.ip_masked || '不明')
+                    : maskIp(row.ipMasked || row.ip_masked || rawIp || '');
+                const ipMasked = escapeHtml(ipForView);
                 const ipHash = escapeHtml(String(row.ipHash || row.ip_hash || '').slice(0, 16) || '-');
                 const name = escapeHtml(row.name || '-');
                 const text = escapeHtml(row.text || '');
@@ -399,6 +406,10 @@
                     </div>
                 `;
             }).join('');
+        }
+
+        function updateIpToggleButton() {
+            toggleIpViewBtn.textContent = state.showFullIp ? 'IPをマスク表示へ' : 'IPをフル表示';
         }
 
         function mergeBoardFromAuditLogs(logs) {
@@ -1110,6 +1121,15 @@
         lockOffBtn.addEventListener('click', () => publishSiteLock(false));
         loadAuditBtn.addEventListener('click', loadAuditLogs);
         saveAuditConfigBtn.addEventListener('click', saveAuditConfig);
+        toggleIpViewBtn.addEventListener('click', () => {
+            if (!state.showFullIp) {
+                const ok = window.confirm('フルIPを表示します。周囲に見えない状態でのみ実行してください。');
+                if (!ok) return;
+            }
+            state.showFullIp = !state.showFullIp;
+            updateIpToggleButton();
+            renderAuditLogs();
+        });
         autoRefreshToggle.addEventListener('change', () => {
             if (autoRefreshToggle.checked) startAutoRefresh();
             else stopAutoRefresh();
@@ -1126,6 +1146,7 @@
         }
         auditApiBaseInput.value = localStorage.getItem(AUDIT_API_BASE_KEY) || '';
         auditTokenInput.value = localStorage.getItem(AUDIT_ADMIN_TOKEN_KEY) || '';
+        updateIpToggleButton();
         renderAuditLogs();
         renderSiteLockStatus();
         startAutoRefresh();
