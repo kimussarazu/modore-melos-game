@@ -882,17 +882,32 @@
                 return;
             }
             letterStatusEl.textContent = '手紙状態: 最新取得中...';
-            const filtersPrimary = [{ kinds: [30078], '#d': [NOSTR_LETTER_D], limit: 100 }];
-            const filtersFallback = [{ kinds: [30078], limit: 220 }];
-            const primary = await Promise.all(
-                NOSTR_RELAYS.map((relay) => listFromRelay(relay, filtersPrimary, RELAY_TIMEOUT_MS))
+            const filtersAuthorPrimary = [{ kinds: [30078], authors: [state.pubkey], '#d': [NOSTR_LETTER_D], limit: 120 }];
+            const filtersAuthorFallback = [{ kinds: [30078], authors: [state.pubkey], limit: 260 }];
+            const filtersRoomPrimary = [{ kinds: [30078], '#d': [NOSTR_LETTER_D], limit: 120 }];
+            const filtersRoomFallback = [{ kinds: [30078], limit: 260 }];
+
+            const authorPrimary = await Promise.all(
+                NOSTR_RELAYS.map((relay) => listFromRelay(relay, filtersAuthorPrimary, RELAY_TIMEOUT_MS))
             );
-            let events = primary.flat();
-            if (events.length === 0) {
-                const fallback = await Promise.all(
-                    NOSTR_RELAYS.map((relay) => listFromRelay(relay, filtersFallback, RELAY_TIMEOUT_MS))
+            let events = authorPrimary.flat();
+            if (events.length < 1) {
+                const authorFallback = await Promise.all(
+                    NOSTR_RELAYS.map((relay) => listFromRelay(relay, filtersAuthorFallback, RELAY_TIMEOUT_MS))
                 );
-                events = fallback.flat();
+                events = [...events, ...authorFallback.flat()];
+            }
+            if (events.length < 1) {
+                const roomPrimary = await Promise.all(
+                    NOSTR_RELAYS.map((relay) => listFromRelay(relay, filtersRoomPrimary, RELAY_TIMEOUT_MS))
+                );
+                events = [...events, ...roomPrimary.flat()];
+            }
+            if (events.length < 1) {
+                const roomFallback = await Promise.all(
+                    NOSTR_RELAYS.map((relay) => listFromRelay(relay, filtersRoomFallback, RELAY_TIMEOUT_MS))
+                );
+                events = [...events, ...roomFallback.flat()];
             }
             let latest = null;
             let latestTs = 0;
@@ -907,7 +922,14 @@
                 }
             });
             if (!latest) {
-                letterStatusEl.textContent = '手紙状態: 取得失敗';
+                const cached = (localStorage.getItem(LETTER_CACHE_KEY) || '').trim();
+                if (cached) {
+                    letterInput.value = cached.slice(0, 220);
+                    letterStatusEl.textContent = '手紙状態: キャッシュを表示';
+                    statusEl.textContent = 'リレー上の最新取得に失敗したため、キャッシュ手紙を表示しました';
+                    return;
+                }
+                letterStatusEl.textContent = '手紙状態: 未設定';
                 statusEl.textContent = '最新の手紙が見つかりませんでした';
                 return;
             }
