@@ -129,7 +129,7 @@ export default {
         return json({ ok: false, error: 'unauthorized' }, 401);
       }
       const limitRaw = Number(url.searchParams.get('limit') || 120);
-      const limit = Math.max(1, Math.min(500, Number.isFinite(limitRaw) ? limitRaw : 120));
+      const limit = Math.max(1, Math.min(2000, Number.isFinite(limitRaw) ? limitRaw : 120));
       const includeDeleted = url.searchParams.get('include_deleted') === '1';
 
       const query = includeDeleted

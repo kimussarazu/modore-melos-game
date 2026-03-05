@@ -204,6 +204,7 @@
         const NOSTR_AUDIT_CONFIG_D = 'melos-audit-config-v1';
         const AUDIT_API_BASE_KEY = 'melos_audit_api_base';
         const AUDIT_ADMIN_TOKEN_KEY = 'melos_audit_admin_token';
+        const LETTER_CACHE_KEY = 'melos_admin_letter_cache';
         const BOARD_RESET_TS = Date.parse('2026-03-04T14:04:47Z');
         const RELAY_TIMEOUT_MS = 4200;
 
@@ -382,6 +383,35 @@
             }).join('');
         }
 
+        function mergeBoardFromAuditLogs(logs) {
+            const rows = Array.isArray(logs) ? logs : [];
+            if (rows.length === 0) return;
+            const deletedIds = [];
+            rows.forEach((row) => {
+                const action = String(row.action || '');
+                const createdAt = Number(row.createdAtMs || row.created_at_ms || 0);
+                if (createdAt > 0 && createdAt < BOARD_RESET_TS) return;
+                if (action === 'chat_post') {
+                    const eventId = String(row.eventId || row.event_id || '').trim();
+                    if (!eventId) return;
+                    const isDeleted = !!(row.isDeleted || row.is_deleted);
+                    state.messages.set(eventId, {
+                        id: eventId,
+                        name: String(row.name || '名無しメロス').slice(0, 12),
+                        text: String(row.text || '').slice(0, 80),
+                        ts: createdAt || Date.now()
+                    });
+                    if (isDeleted) deletedIds.push(eventId);
+                    return;
+                }
+                if (action === 'chat_delete') {
+                    const targetId = String(row.targetEventId || row.target_event_id || '').trim();
+                    if (targetId) deletedIds.push(targetId);
+                }
+            });
+            applyDeletedIds(deletedIds);
+        }
+
         async function loadAuditLogs() {
             const base = getAuditApiBase();
             const token = getAuditToken();
@@ -396,7 +426,7 @@
             }
             auditStatusEl.textContent = '監査ログ取得中...';
             try {
-                const res = await fetch(`${base}/api/audit/logs?limit=500&include_deleted=1`, {
+                const res = await fetch(`${base}/api/audit/logs?limit=2000&include_deleted=1`, {
                     headers: {
                         'x-admin-token': token,
                         'x-admin-page': 'admin',
@@ -410,8 +440,10 @@
                 }
                 const data = await res.json();
                 state.auditLogs = Array.isArray(data.logs) ? data.logs : [];
+                mergeBoardFromAuditLogs(state.auditLogs);
                 auditStatusEl.textContent = `監査ログ取得完了（${state.auditLogs.length}件）`;
                 renderAuditLogs();
+                renderComments();
             } catch (err) {
                 console.warn(err);
                 auditStatusEl.textContent = '監査ログ取得に失敗しました';
@@ -597,6 +629,7 @@
                     state.letterTs = eventTs;
                     const nextText = payload && typeof payload.text === 'string' ? payload.text.slice(0, 220) : '';
                     letterInput.value = nextText;
+                    localStorage.setItem(LETTER_CACHE_KEY, nextText);
                     if (state.pendingLetterText === null || state.pendingLetterText === nextText) {
                         letterStatusEl.textContent = '手紙状態: 反映完了';
                         state.pendingLetterText = null;
@@ -843,6 +876,7 @@
             if (!ok) return;
             statusEl.textContent = safeText ? '手紙を更新しました' : '手紙を削除しました';
             letterStatusEl.textContent = '手紙状態: 反映完了（送信済み）';
+            localStorage.setItem(LETTER_CACHE_KEY, safeText);
             setTimeout(() => {
                 loadBoardData();
             }, 1200);
@@ -987,6 +1021,11 @@
         const cachedSecret = localStorage.getItem('melos_nostr_secret');
         if (cachedSecret) {
             secretInput.value = cachedSecret;
+        }
+        const cachedLetter = localStorage.getItem(LETTER_CACHE_KEY);
+        if (cachedLetter) {
+            letterInput.value = String(cachedLetter).slice(0, 220);
+            letterStatusEl.textContent = '手紙状態: キャッシュ表示';
         }
         auditApiBaseInput.value = localStorage.getItem(AUDIT_API_BASE_KEY) || '';
         auditTokenInput.value = localStorage.getItem(AUDIT_ADMIN_TOKEN_KEY) || '';
