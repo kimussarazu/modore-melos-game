@@ -1073,9 +1073,27 @@
         }
 
         function spawnChaserWave(burstCount) {
-            for (let j = 0; j < burstCount; j++) {
+            // 3頭時は「2頭連続 + 少し間を空けて1頭」にして、
+            // 上級者なら着地リズムで回避できる余地を作る。
+            const offsets = [];
+            if (burstCount >= 3) {
+                offsets.push(
+                    0,
+                    60 + Math.random() * 14,     // 1-2頭目は近め
+                    208 + Math.random() * 34     // 2-3頭目は着地できる間隔
+                );
+                for (let j = 3; j < burstCount; j++) {
+                    offsets.push(offsets[offsets.length - 1] + 74 + Math.random() * 18);
+                }
+            } else {
+                for (let j = 0; j < burstCount; j++) {
+                    offsets.push(j * 64 + Math.random() * 24);
+                }
+            }
+
+            for (let j = 0; j < offsets.length; j++) {
                 if (chasers.length >= PERF.maxChasers) break;
-                const startX = canvas.width + 92 + j * 64 + Math.random() * 24;
+                const startX = canvas.width + 92 + offsets[j];
                 const riderHeight = 34;
                 const groundY = getGroundLevelAt(startX + 24);
                 chasers.push({
