@@ -271,7 +271,13 @@
             auditLogs: [],
             autoRefreshTimer: null,
             autoRefreshBusy: false,
-            showFullIp: false
+            showFullIp: false,
+            commentRenderQueued: false,
+            lastCommentRenderKey: '',
+            lastAuditRenderKey: '',
+            pendingLiveNewCount: 0,
+            lastRealtimeEventAt: 0,
+            healthTimer: null
         };
         const AUTO_REFRESH_MS = 15000;
 
@@ -316,6 +322,7 @@
                 try { state.liveSub.close(); } catch {}
             }
             state.liveSub = null;
+            stopRealtimeHealthMonitor();
             state.messages.clear();
             state.selected.clear();
             state.removedEventIds.clear();
@@ -363,9 +370,14 @@
         function renderAuditLogs() {
             const rows = Array.isArray(state.auditLogs) ? state.auditLogs : [];
             if (rows.length === 0) {
+                state.lastAuditRenderKey = 'empty';
                 auditListEl.innerHTML = '<div class="empty">監査ログはありません。</div>';
                 return;
             }
+            const nextKey = `${rows.length}:${rows.map((row) => `${row.eventId || row.event_id || ''}:${row.isDeleted || row.is_deleted ? 1 : 0}`).slice(0, 120).join('|')}`;
+            if (nextKey === state.lastAuditRenderKey) return;
+            state.lastAuditRenderKey = nextKey;
+            const prevScrollTop = auditListEl.scrollTop;
             const byEventId = new Map();
             rows.forEach((row) => {
                 const eventId = String(row.eventId || row.event_id || '').trim();
@@ -406,6 +418,7 @@
                     </div>
                 `;
             }).join('');
+            auditListEl.scrollTop = prevScrollTop;
         }
 
         function updateIpToggleButton() {
@@ -509,6 +522,23 @@
             }
         }
 
+        function stopRealtimeHealthMonitor() {
+            if (state.healthTimer) {
+                clearInterval(state.healthTimer);
+                state.healthTimer = null;
+            }
+        }
+
+        function startRealtimeHealthMonitor() {
+            stopRealtimeHealthMonitor();
+            state.healthTimer = setInterval(async () => {
+                if (!state.pool) return;
+                const staleMs = Date.now() - (state.lastRealtimeEventAt || 0);
+                if (staleMs < 30000) return;
+                await restartRealtimeAndRefresh('リアルタイム: 自動再接続しました');
+            }, 12000);
+        }
+
         function startAutoRefresh() {
             stopAutoRefresh();
             if (!autoRefreshToggle.checked) return;
@@ -517,7 +547,8 @@
                 state.autoRefreshBusy = true;
                 try {
                     if (state.pool) {
-                        await loadBoardData();
+                        await loadBoardData({ incremental: true, silent: true });
+                        await syncLatestLetterSilently();
                     }
                     if (getAuditApiBase() && getAuditToken()) {
                         await loadAuditLogs();
@@ -566,9 +597,17 @@
                 .sort((a, b) => (b.ts || 0) - (a.ts || 0));
 
             if (rows.length === 0) {
+                state.lastCommentRenderKey = 'empty';
                 commentList.innerHTML = '<div class="empty">表示できるコメントはありません。</div>';
                 return;
             }
+            const nextKey = rows.map((msg) => `${msg.id}:${state.selected.has(msg.id) ? 1 : 0}`).join('|');
+            if (nextKey === state.lastCommentRenderKey) return;
+            state.lastCommentRenderKey = nextKey;
+            const prevScrollTop = commentList.scrollTop;
+            const activeEl = document.activeElement;
+            const activeId = (activeEl instanceof HTMLInputElement) ? String(activeEl.dataset.id || '') : '';
+            const activeHadFocus = !!activeId;
 
             commentList.innerHTML = rows.map((msg) => {
                 const checked = state.selected.has(msg.id) ? 'checked' : '';
@@ -582,6 +621,27 @@
                     </div>
                 `;
             }).join('');
+            commentList.scrollTop = prevScrollTop;
+            if (activeHadFocus) {
+                const nextInput = Array.from(commentList.querySelectorAll('input[data-id]'))
+                    .find((el) => el instanceof HTMLInputElement && String(el.dataset.id || '') === activeId);
+                if (nextInput instanceof HTMLInputElement) {
+                    try {
+                        nextInput.focus({ preventScroll: true });
+                    } catch {
+                        nextInput.focus();
+                    }
+                }
+            }
+        }
+
+        function scheduleCommentsRender() {
+            if (state.commentRenderQueued) return;
+            state.commentRenderQueued = true;
+            requestAnimationFrame(() => {
+                state.commentRenderQueued = false;
+                renderComments();
+            });
         }
 
         function applyDeletedIds(ids) {
@@ -697,19 +757,70 @@
             }
         }
 
-        async function loadBoardData() {
+        function pickLatestLetterEvent(events) {
+            let latest = null;
+            let latestTs = 0;
+            (events || []).forEach((event) => {
+                if (!event || !event.id) return;
+                const dTag = (event.tags || []).find((tag) => Array.isArray(tag) && tag[0] === 'd');
+                const dValue = dTag && dTag[1] ? dTag[1] : '';
+                if (dValue !== NOSTR_LETTER_D) return;
+                const eventTs = (event.created_at || Math.floor(Date.now() / 1000)) * 1000;
+                if (eventTs >= latestTs) {
+                    latest = event;
+                    latestTs = eventTs;
+                }
+            });
+            return { latest, latestTs };
+        }
+
+        async function fetchLatestLetterEvent() {
+            if (!state.pool) return null;
+            const letterTimeoutMs = Math.max(RELAY_TIMEOUT_MS + 6000, 10000);
+            const filterSets = [
+                [{ kinds: [30078], authors: [state.pubkey], '#d': [NOSTR_LETTER_D], limit: 220 }],
+                [{ kinds: [30078], authors: [state.pubkey], limit: 600 }],
+                [{ kinds: [30078], '#d': [NOSTR_LETTER_D], limit: 260 }],
+                [{ kinds: [30078], limit: 1200 }]
+            ];
+            let collected = [];
+            for (const filters of filterSets) {
+                const batched = await Promise.all(
+                    NOSTR_RELAYS.map((relay) => listFromRelay(relay, filters, letterTimeoutMs))
+                );
+                const chunk = batched.flat();
+                if (chunk.length > 0) {
+                    collected = collected.concat(chunk);
+                    const { latest } = pickLatestLetterEvent(collected);
+                    if (latest) return latest;
+                }
+            }
+            return null;
+        }
+
+        async function syncLatestLetterSilently() {
+            const latest = await fetchLatestLetterEvent();
+            if (!latest) return false;
+            ingestEvent(latest);
+            return true;
+        }
+
+        async function loadBoardData(options = {}) {
+            const incremental = !!options.incremental;
+            const silent = !!options.silent;
             if (!state.pool) return;
-            statusEl.textContent = '読み込み中...（高速モード）';
-            state.messages.clear();
-            state.selected.clear();
-            state.removedEventIds.clear();
-            state.adminDeletedIds.clear();
-            state.letterTs = 0;
-            state.siteLockTs = 0;
-            state.siteLocked = false;
-            letterStatusEl.textContent = '手紙状態: 読み込み中...';
-            renderSiteLockStatus();
-            renderComments();
+            if (!silent) statusEl.textContent = '読み込み中...（高速モード）';
+            if (!incremental) {
+                state.messages.clear();
+                state.selected.clear();
+                state.removedEventIds.clear();
+                state.adminDeletedIds.clear();
+                state.siteLockTs = 0;
+                state.siteLocked = false;
+                letterStatusEl.textContent = '手紙状態: 読み込み中...';
+                renderSiteLockStatus();
+                renderComments();
+            }
 
             const boardFilters = [{
                 kinds: [1, 5],
@@ -735,8 +846,8 @@
                 NOSTR_RELAYS.map((relay) => listFromRelay(relay, boardFilters, RELAY_TIMEOUT_MS))
             );
             boardResults.flat().forEach(ingestEvent);
-            renderComments();
-            statusEl.textContent = `コメント読み込み中...（${state.messages.size}件）`;
+            scheduleCommentsRender();
+            if (!silent) statusEl.textContent = `コメント読み込み中...（${state.messages.size}件）`;
 
             // If sparse, query each relay again with wider limits.
             if (state.messages.size < 8) {
@@ -744,7 +855,7 @@
                     NOSTR_RELAYS.map((relay) => listFromRelay(relay, boardWideFilters, RELAY_TIMEOUT_MS + 1200))
                 );
                 wideResults.flat().forEach(ingestEvent);
-                renderComments();
+                scheduleCommentsRender();
             }
 
             // Some relays don't support #t filtering well. Fetch broad, then filter by tags client-side.
@@ -753,7 +864,7 @@
                     NOSTR_RELAYS.map((relay) => listFromRelay(relay, [{ kinds: [1, 5], limit: 260 }], RELAY_TIMEOUT_MS))
                 );
                 broadNoTagResults.flat().forEach(ingestEvent);
-                renderComments();
+                scheduleCommentsRender();
             }
 
             const metaResultsPrimary = await Promise.all(
@@ -766,16 +877,16 @@
                     NOSTR_RELAYS.map((relay) => listFromRelay(relay, metaFiltersFallback, Math.floor(RELAY_TIMEOUT_MS * 0.85)))
                 )).flat();
             metaEvents.forEach(ingestEvent);
-            if (state.letterTs === 0 && state.pendingLetterText === null) {
+            if (state.letterTs === 0 && state.pendingLetterText === null && !letterInput.value.trim()) {
                 letterStatusEl.textContent = '手紙状態: なし';
             }
-            renderComments();
+            scheduleCommentsRender();
 
             if (state.messages.size === 0) {
-                statusEl.textContent = '読み込み完了（0件）: まだ投稿がないか、サーバー履歴の応答待ちです';
+                if (!silent) statusEl.textContent = '読み込み完了（0件）: まだ投稿がないか、サーバー履歴の応答待ちです';
                 return;
             }
-            statusEl.textContent = `読み込み完了（${state.messages.size}件）`;
+            if (!silent) statusEl.textContent = `読み込み完了（${state.messages.size}件）`;
         }
 
         function startRealtimeSync() {
@@ -784,18 +895,23 @@
                 try { state.liveSub.close(); } catch {}
             }
             const since = Math.floor(Date.now() / 1000) - 5;
+            state.lastRealtimeEventAt = Date.now();
             state.liveSub = state.pool.subscribeMany(
                 NOSTR_RELAYS,
                 [{ kinds: [1, 5, 30078], since }],
                 {
                     onevent(event) {
+                        state.lastRealtimeEventAt = Date.now();
                         const before = state.messages.size;
                         ingestEvent(event);
                         if (state.messages.size !== before || event.kind !== 1) {
-                            renderComments();
+                            scheduleCommentsRender();
                         }
                         if (event.kind === 1) {
-                            liveStatusEl.textContent = 'リアルタイム: 新着コメントを受信しました';
+                            if (state.messages.size > before) {
+                                state.pendingLiveNewCount += 1;
+                            }
+                            liveStatusEl.textContent = `リアルタイム: 新着コメント ${state.pendingLiveNewCount}件`;
                         } else if (event.kind === 30078) {
                             liveStatusEl.textContent = 'リアルタイム: 管理更新を受信しました';
                         }
@@ -803,6 +919,19 @@
                 }
             );
             liveStatusEl.textContent = 'リアルタイム: 接続中（自動反映）';
+        }
+
+        async function restartRealtimeAndRefresh(statusText = '') {
+            if (!state.pool) return;
+            startRealtimeSync();
+            await loadBoardData({ incremental: true, silent: true });
+            await syncLatestLetterSilently();
+            if (getAuditApiBase() && getAuditToken()) {
+                await loadAuditLogs();
+            }
+            if (statusText) {
+                liveStatusEl.textContent = statusText;
+            }
         }
 
         function publishEvent(template) {
@@ -893,47 +1022,7 @@
                 return;
             }
             letterStatusEl.textContent = '手紙状態: 最新取得中...';
-            const filtersAuthorPrimary = [{ kinds: [30078], authors: [state.pubkey], '#d': [NOSTR_LETTER_D], limit: 180 }];
-            const filtersAuthorFallback = [{ kinds: [30078], authors: [state.pubkey], limit: 480 }];
-            const filtersRoomPrimary = [{ kinds: [30078], '#d': [NOSTR_LETTER_D], limit: 180 }];
-            const filtersRoomFallback = [{ kinds: [30078], limit: 900 }];
-
-            const letterTimeoutMs = Math.max(RELAY_TIMEOUT_MS + 6000, 10000);
-            const queryAll = async (filters) => {
-                if (!state.pool) return [];
-                return withTimeout(
-                    state.pool.list(NOSTR_RELAYS, filters),
-                    letterTimeoutMs,
-                    []
-                );
-            };
-
-            let events = await queryAll(filtersAuthorPrimary);
-            if (!Array.isArray(events)) events = [];
-            if (events.length < 1) {
-                const x = await queryAll(filtersAuthorFallback);
-                if (Array.isArray(x)) events = [...events, ...x];
-            }
-            if (events.length < 1) {
-                const x = await queryAll(filtersRoomPrimary);
-                if (Array.isArray(x)) events = [...events, ...x];
-            }
-            if (events.length < 1) {
-                const x = await queryAll(filtersRoomFallback);
-                if (Array.isArray(x)) events = [...events, ...x];
-            }
-            let latest = null;
-            let latestTs = 0;
-            events.forEach((event) => {
-                const dTag = (event.tags || []).find((tag) => Array.isArray(tag) && tag[0] === 'd');
-                const dValue = dTag && dTag[1] ? dTag[1] : '';
-                if (dValue !== NOSTR_LETTER_D) return;
-                const eventTs = (event.created_at || Math.floor(Date.now() / 1000)) * 1000;
-                if (eventTs >= latestTs) {
-                    latest = event;
-                    latestTs = eventTs;
-                }
-            });
+            const latest = await fetchLatestLetterEvent();
             if (!latest) {
                 const cached = (localStorage.getItem(LETTER_CACHE_KEY) || '').trim();
                 if (cached) {
@@ -952,6 +1041,7 @@
             } catch {
                 payload = null;
             }
+            const latestTs = (latest.created_at || Math.floor(Date.now() / 1000)) * 1000;
             const nextText = payload && typeof payload.text === 'string' ? payload.text.slice(0, 220) : '';
             letterInput.value = nextText;
             state.letterTs = latestTs;
@@ -1058,6 +1148,7 @@
                 statusEl.textContent = `接続しました: ${state.pubkey.slice(0, 12)}...`;
                 await loadBoardData();
                 startRealtimeSync();
+                startRealtimeHealthMonitor();
                 await loadAuditLogs();
                 startAutoRefresh();
             } catch (err) {
@@ -1133,6 +1224,16 @@
         autoRefreshToggle.addEventListener('change', () => {
             if (autoRefreshToggle.checked) startAutoRefresh();
             else stopAutoRefresh();
+        });
+        document.addEventListener('visibilitychange', async () => {
+            if (document.visibilityState !== 'visible') return;
+            await restartRealtimeAndRefresh('リアルタイム: 画面復帰で再同期しました');
+        });
+        window.addEventListener('pageshow', async () => {
+            await restartRealtimeAndRefresh('リアルタイム: ページ復帰で再同期しました');
+        });
+        window.addEventListener('online', async () => {
+            await restartRealtimeAndRefresh('リアルタイム: 通信復帰で再同期しました');
         });
 
         const cachedSecret = localStorage.getItem('melos_nostr_secret');
