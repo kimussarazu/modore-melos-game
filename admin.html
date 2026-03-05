@@ -882,32 +882,34 @@
                 return;
             }
             letterStatusEl.textContent = '手紙状態: 最新取得中...';
-            const filtersAuthorPrimary = [{ kinds: [30078], authors: [state.pubkey], '#d': [NOSTR_LETTER_D], limit: 120 }];
-            const filtersAuthorFallback = [{ kinds: [30078], authors: [state.pubkey], limit: 260 }];
-            const filtersRoomPrimary = [{ kinds: [30078], '#d': [NOSTR_LETTER_D], limit: 120 }];
-            const filtersRoomFallback = [{ kinds: [30078], limit: 260 }];
+            const filtersAuthorPrimary = [{ kinds: [30078], authors: [state.pubkey], '#d': [NOSTR_LETTER_D], limit: 180 }];
+            const filtersAuthorFallback = [{ kinds: [30078], authors: [state.pubkey], limit: 480 }];
+            const filtersRoomPrimary = [{ kinds: [30078], '#d': [NOSTR_LETTER_D], limit: 180 }];
+            const filtersRoomFallback = [{ kinds: [30078], limit: 900 }];
 
-            const authorPrimary = await Promise.all(
-                NOSTR_RELAYS.map((relay) => listFromRelay(relay, filtersAuthorPrimary, RELAY_TIMEOUT_MS))
-            );
-            let events = authorPrimary.flat();
-            if (events.length < 1) {
-                const authorFallback = await Promise.all(
-                    NOSTR_RELAYS.map((relay) => listFromRelay(relay, filtersAuthorFallback, RELAY_TIMEOUT_MS))
+            const letterTimeoutMs = Math.max(RELAY_TIMEOUT_MS + 6000, 10000);
+            const queryAll = async (filters) => {
+                if (!state.pool) return [];
+                return withTimeout(
+                    state.pool.list(NOSTR_RELAYS, filters),
+                    letterTimeoutMs,
+                    []
                 );
-                events = [...events, ...authorFallback.flat()];
+            };
+
+            let events = await queryAll(filtersAuthorPrimary);
+            if (!Array.isArray(events)) events = [];
+            if (events.length < 1) {
+                const x = await queryAll(filtersAuthorFallback);
+                if (Array.isArray(x)) events = [...events, ...x];
             }
             if (events.length < 1) {
-                const roomPrimary = await Promise.all(
-                    NOSTR_RELAYS.map((relay) => listFromRelay(relay, filtersRoomPrimary, RELAY_TIMEOUT_MS))
-                );
-                events = [...events, ...roomPrimary.flat()];
+                const x = await queryAll(filtersRoomPrimary);
+                if (Array.isArray(x)) events = [...events, ...x];
             }
             if (events.length < 1) {
-                const roomFallback = await Promise.all(
-                    NOSTR_RELAYS.map((relay) => listFromRelay(relay, filtersRoomFallback, RELAY_TIMEOUT_MS))
-                );
-                events = [...events, ...roomFallback.flat()];
+                const x = await queryAll(filtersRoomFallback);
+                if (Array.isArray(x)) events = [...events, ...x];
             }
             let latest = null;
             let latestTs = 0;
