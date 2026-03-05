@@ -35,3 +35,15 @@ CREATE TABLE IF NOT EXISTS melos_visitors (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_melos_visitors_room_number
 ON melos_visitors (room_tag, melos_number);
+
+CREATE TABLE IF NOT EXISTS letter_acks (
+  room_tag TEXT NOT NULL,
+  letter_ts INTEGER NOT NULL,
+  uid_hash TEXT NOT NULL,
+  ip_hash TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (room_tag, letter_ts, uid_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_letter_acks_room_letter
+ON letter_acks (room_tag, letter_ts);

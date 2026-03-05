@@ -249,9 +249,27 @@
         }
         #melosOrdinal {
             color: #ffe89a;
-            font-size: 0.54em;
-            margin-bottom: 6px;
+            font-size: 0.62em;
+            margin: -4px 0 10px;
             min-height: 10px;
+            text-shadow: 2px 2px 0 #000;
+            text-align: center;
+        }
+        #letterNoticeBadge {
+            display: none;
+            max-width: min(92%, 680px);
+            margin: -2px 0 10px;
+            padding: 7px 10px;
+            border: 3px solid #8b2525;
+            background: rgba(120, 10, 10, 0.6);
+            color: #ffe5a8;
+            font-size: 0.6em;
+            line-height: 1.6;
+            text-align: center;
+            box-shadow: 3px 3px 0 #000;
+        }
+        #letterNoticeBadge.show {
+            display: block;
         }
         #chatLockedNotice {
             display: none;
@@ -304,6 +322,20 @@
         }
         #chatJumpLatestButton.show {
             display: inline-block;
+        }
+        #letterSeenWrap {
+            display: none;
+            margin-top: 6px;
+            padding-top: 6px;
+            border-top: 1px dashed #7b6b3f;
+            color: #3b2b18;
+            font-size: 0.84em;
+        }
+        #letterSeenWrap label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
         }
 
         .chatMessage {
@@ -489,6 +521,8 @@
         <div id="startScreen">
             <canvas id="pixelArt" width="300" height="200"></canvas>
             <h1>戻れメロス</h1>
+            <div id="melosOrdinal">あなたは しらべちゅう の メロスです...</div>
+            <div id="letterNoticeBadge">新しい手紙が届いています（ページ最下部を確認）</div>
             <div id="instructions">
                 メロスは家に帰らなければならない<br><br>
                 PC: スペースでジャンプ（2段まで）<br>
@@ -507,7 +541,6 @@
             <div id="chatBoard">
                 <div id="chatTitle">歴代メロスの掲示板</div>
                 <div id="chatStatus">接続準備中...</div>
-                <div id="melosOrdinal">あなたは しらべちゅう の メロスです...</div>
                 <div id="chatLockedNotice">メンテナンス中のため、掲示板は停止しています。</div>
                 <div id="chatBoardContent">
                     <div id="chatMain">
@@ -523,6 +556,9 @@
                     <div id="creatorLetter">
                         <div id="creatorLetterTitle">つくりて からの てがみ</div>
                         <div id="creatorLetterBody">（まだ ありません）</div>
+                        <div id="letterSeenWrap">
+                            <label><input id="letterSeenCheckbox" type="checkbox"> この手紙を確認した</label>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -568,6 +604,7 @@
         const hardButton = document.getElementById('hardButton');
         const chatStatus = document.getElementById('chatStatus');
         const melosOrdinal = document.getElementById('melosOrdinal');
+        const letterNoticeBadge = document.getElementById('letterNoticeBadge');
         const chatBoardContent = document.getElementById('chatBoardContent');
         const chatLockedNotice = document.getElementById('chatLockedNotice');
         const chatMessages = document.getElementById('chatMessages');
@@ -577,6 +614,8 @@
         const chatSendButton = document.getElementById('chatSendButton');
         const chatRefreshButton = document.getElementById('chatRefreshButton');
         const creatorLetterBody = document.getElementById('creatorLetterBody');
+        const letterSeenWrap = document.getElementById('letterSeenWrap');
+        const letterSeenCheckbox = document.getElementById('letterSeenCheckbox');
         const siteLockNotice = document.getElementById('siteLockNotice');
 
         // Pixel art rendering
@@ -757,6 +796,7 @@
         const ADMIN_PUBKEY_STORAGE_KEY = 'melos_admin_pubkey';
         const AUDIT_API_BASE_KEY = 'melos_audit_api_base';
         const MELOS_NUMBER_CACHE_KEY = 'melos_visitor_number_v1';
+        const LETTER_ACK_TS_KEY = 'melos_letter_ack_ts_v1';
         const DEFAULT_AUDIT_API_BASE = 'https://melos-audit-worker.melos-audit-kimussarazu.workers.dev';
         const BOARD_RESET_TS = Date.parse('2026-03-04T14:04:47Z');
         const CHAT_BLOCK_PATTERNS = [
@@ -1140,6 +1180,50 @@
             }
         }
 
+        function getAckedLetterTs() {
+            const n = Number(localStorage.getItem(LETTER_ACK_TS_KEY) || 0);
+            return Number.isFinite(n) ? n : 0;
+        }
+
+        function updateLetterNoticeUi() {
+            const letterText = String(chatState.creatorLetter || '').trim();
+            const letterTs = Number(chatState.creatorLetterTs || 0);
+            const hasLetter = !!letterText && letterTs > 0;
+            if (!hasLetter) {
+                if (letterNoticeBadge) letterNoticeBadge.classList.remove('show');
+                if (letterSeenWrap) letterSeenWrap.style.display = 'none';
+                if (letterSeenCheckbox) letterSeenCheckbox.checked = false;
+                return;
+            }
+            const acked = getAckedLetterTs() >= letterTs;
+            if (letterSeenWrap) letterSeenWrap.style.display = 'block';
+            if (letterSeenCheckbox) letterSeenCheckbox.checked = acked;
+            if (letterNoticeBadge) {
+                if (acked) letterNoticeBadge.classList.remove('show');
+                else letterNoticeBadge.classList.add('show');
+            }
+        }
+
+        async function postLetterAcknowledgement() {
+            const base = getAuditApiBase();
+            const letterTs = Number(chatState.creatorLetterTs || 0);
+            if (!base || letterTs <= 0) return;
+            try {
+                await fetch(`${base}/api/letter/ack`, {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({
+                        roomTag: NOSTR_ROOM_TAG,
+                        letterTs,
+                        uid: chatState.selfId || ''
+                    }),
+                    keepalive: true
+                });
+            } catch {
+                // 確認チェック送信失敗は表示継続でフォールバック
+            }
+        }
+
         function updateMelosOrdinalText(value, isFallback = false) {
             if (!melosOrdinal) return;
             const num = Number(value || 0);
@@ -1198,6 +1282,7 @@
             if (!creatorLetterBody) return;
             const text = (chatState.creatorLetter || '').trim();
             creatorLetterBody.textContent = text || '（まだ ありません）';
+            updateLetterNoticeUi();
         }
 
         function updateSiteLockUi() {
@@ -1554,6 +1639,7 @@
             chatState.initialized = true;
             updateMelosOrdinalText(0);
             refreshMelosOrdinal();
+            updateLetterNoticeUi();
 
             const savedName = localStorage.getItem('melos_chat_name');
             if (savedName) chatNameInput.value = savedName;
@@ -1805,6 +1891,21 @@
             }
             chatState.lastEnterAt = now;
             chatStatus.textContent = 'もう一度Enterで送信';
+        });
+        if (letterSeenCheckbox) letterSeenCheckbox.addEventListener('change', () => {
+            const letterTs = Number(chatState.creatorLetterTs || 0);
+            if (letterTs <= 0) {
+                letterSeenCheckbox.checked = false;
+                return;
+            }
+            if (letterSeenCheckbox.checked) {
+                localStorage.setItem(LETTER_ACK_TS_KEY, String(letterTs));
+                updateLetterNoticeUi();
+                postLetterAcknowledgement();
+                return;
+            }
+            localStorage.removeItem(LETTER_ACK_TS_KEY);
+            updateLetterNoticeUi();
         });
         muteButton.addEventListener('click', async () => {
             await prepareAudio();

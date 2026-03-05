@@ -207,6 +207,7 @@
             <button id="syncLetterBtn" class="secondary">最新の「つくりてのてがみ」に更新</button>
         </div>
         <div id="letterStatus" style="margin-top:8px; color:#b8e986;">手紙状態: 未確認</div>
+        <div id="letterAckStatus" style="margin-top:4px; color:#9ecfff;">手紙確認チェック人数: 未取得</div>
     </div>
 
     <script>
@@ -254,6 +255,7 @@
         const deleteLetterBtn = document.getElementById('deleteLetterBtn');
         const syncLetterBtn = document.getElementById('syncLetterBtn');
         const letterStatusEl = document.getElementById('letterStatus');
+        const letterAckStatusEl = document.getElementById('letterAckStatus');
 
         const state = {
             pool: null,
@@ -277,7 +279,9 @@
             lastAuditRenderKey: '',
             pendingLiveNewCount: 0,
             lastRealtimeEventAt: 0,
-            healthTimer: null
+            healthTimer: null,
+            letterAckCount: 0,
+            letterAckTs: 0
         };
         const AUTO_REFRESH_MS = 15000;
 
@@ -331,9 +335,12 @@
             state.pendingLetterText = null;
             state.siteLockTs = 0;
             state.siteLocked = false;
+            state.letterAckCount = 0;
+            state.letterAckTs = 0;
             letterInput.value = '';
             renderComments();
             letterStatusEl.textContent = '手紙状態: 未確認';
+            letterAckStatusEl.textContent = '手紙確認チェック人数: 未取得';
             renderSiteLockStatus();
         }
 
@@ -352,6 +359,47 @@
             auditStatusEl.textContent = '監査設定を保存しました';
             if (state.pool && state.seckey) {
                 publishAuditConfig(base);
+            }
+        }
+
+        function updateLetterAckStatus(text) {
+            letterAckStatusEl.textContent = text;
+        }
+
+        async function loadLetterAckCount() {
+            const letterTs = Number(state.letterTs || 0);
+            const letterText = String(letterInput.value || '').trim();
+            if (letterTs <= 0 || !letterText) {
+                updateLetterAckStatus('手紙確認チェック人数: 対象の手紙なし');
+                return;
+            }
+            const base = getAuditApiBase();
+            const token = getAuditToken();
+            const adminPath = window.location.pathname || '/modore-melos-game/admin.html';
+            if (!base || !token) {
+                updateLetterAckStatus('手紙確認チェック人数: 監査設定未入力');
+                return;
+            }
+            try {
+                const roomTag = encodeURIComponent(NOSTR_ROOM_TAG);
+                const res = await fetch(`${base}/api/letter/ack-count?room_tag=${roomTag}&letter_ts=${letterTs}`, {
+                    headers: {
+                        'x-admin-token': token,
+                        'x-admin-page': 'admin',
+                        'x-admin-path': adminPath
+                    },
+                    referrerPolicy: 'unsafe-url'
+                });
+                if (!res.ok) {
+                    updateLetterAckStatus(`手紙確認チェック人数: 取得失敗（HTTP ${res.status}）`);
+                    return;
+                }
+                const data = await res.json();
+                state.letterAckCount = Number(data && data.count ? data.count : 0);
+                state.letterAckTs = letterTs;
+                updateLetterAckStatus(`手紙確認チェック人数: ${state.letterAckCount}人`);
+            } catch {
+                updateLetterAckStatus('手紙確認チェック人数: 取得失敗');
             }
         }
 
@@ -549,6 +597,7 @@
                     if (state.pool) {
                         await loadBoardData({ incremental: true, silent: true });
                         await syncLatestLetterSilently();
+                        await loadLetterAckCount();
                     }
                     if (getAuditApiBase() && getAuditToken()) {
                         await loadAuditLogs();
@@ -725,6 +774,7 @@
                     } else {
                         letterStatusEl.textContent = '手紙状態: 反映済み';
                     }
+                    void loadLetterAckCount();
                     return;
                 }
                 if (dValue === NOSTR_SITE_LOCK_D) {
@@ -879,6 +929,9 @@
             metaEvents.forEach(ingestEvent);
             if (state.letterTs === 0 && state.pendingLetterText === null && !letterInput.value.trim()) {
                 letterStatusEl.textContent = '手紙状態: なし';
+                updateLetterAckStatus('手紙確認チェック人数: 対象の手紙なし');
+            } else {
+                await loadLetterAckCount();
             }
             scheduleCommentsRender();
 
@@ -1049,6 +1102,7 @@
             localStorage.setItem(LETTER_CACHE_KEY, nextText);
             letterStatusEl.textContent = '手紙状態: 最新を同期';
             statusEl.textContent = 'プレイ側の最新手紙を管理画面へ同期しました';
+            await loadLetterAckCount();
         }
 
         function publishCreatorLetter(text) {
@@ -1070,6 +1124,11 @@
             statusEl.textContent = safeText ? '手紙を更新しました' : '手紙を削除しました';
             letterStatusEl.textContent = '手紙状態: 反映完了（送信済み）';
             localStorage.setItem(LETTER_CACHE_KEY, safeText);
+            if (!safeText.trim()) {
+                updateLetterAckStatus('手紙確認チェック人数: 対象の手紙なし');
+            } else {
+                updateLetterAckStatus('手紙確認チェック人数: 反映待ち...');
+            }
             setTimeout(() => {
                 loadBoardData();
             }, 1200);

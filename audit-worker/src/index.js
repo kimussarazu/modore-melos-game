@@ -74,6 +74,23 @@ async function ensureMelosVisitorsTable(env) {
   ).run();
 }
 
+async function ensureLetterAcksTable(env) {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS letter_acks (
+      room_tag TEXT NOT NULL,
+      letter_ts INTEGER NOT NULL,
+      uid_hash TEXT NOT NULL,
+      ip_hash TEXT NOT NULL,
+      created_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (room_tag, letter_ts, uid_hash)
+    )`
+  ).run();
+  await env.DB.prepare(
+    `CREATE INDEX IF NOT EXISTS idx_letter_acks_room_letter
+     ON letter_acks (room_tag, letter_ts)`
+  ).run();
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -194,6 +211,55 @@ export default {
         return json({ ok: false, error: 'assign_failed' }, 500);
       }
       return json({ ok: true, roomTag, melosNumber: assigned });
+    }
+
+    if (url.pathname === '/api/letter/ack' && request.method === 'POST') {
+      let body = null;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ ok: false, error: 'invalid_json' }, 400);
+      }
+      const roomTag = toSafeText(body?.roomTag || 'modore-melos-board-v1', 64);
+      const letterTs = Number(body?.letterTs || 0);
+      if (!Number.isFinite(letterTs) || letterTs <= 0) {
+        return json({ ok: false, error: 'invalid_letter_ts' }, 400);
+      }
+      const uidRaw = toSafeText(body?.uid || '', 128);
+      const ip =
+        request.headers.get('cf-connecting-ip') ||
+        request.headers.get('x-forwarded-for') ||
+        'unknown';
+      const ipHash = await sha256Hex(`${ip}|${env.IP_SALT || 'fallback_salt'}`);
+      const uidSource = uidRaw ? `uid:${uidRaw}` : `ip:${ipHash}`;
+      const uidHash = await sha256Hex(`${uidSource}|${env.IP_SALT || 'fallback_salt'}`);
+
+      await ensureLetterAcksTable(env);
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO letter_acks (
+          room_tag, letter_ts, uid_hash, ip_hash, created_at_ms
+        ) VALUES (?, ?, ?, ?, ?)`
+      ).bind(roomTag, letterTs, uidHash, ipHash, Date.now()).run();
+
+      return json({ ok: true });
+    }
+
+    if (url.pathname === '/api/letter/ack-count' && request.method === 'GET') {
+      if (!isAdmin(request, env) || !isAllowedAdminPage(request, env)) {
+        return json({ ok: false, error: 'unauthorized' }, 401);
+      }
+      const roomTag = toSafeText(url.searchParams.get('room_tag') || 'modore-melos-board-v1', 64);
+      const letterTs = Number(url.searchParams.get('letter_ts') || 0);
+      if (!Number.isFinite(letterTs) || letterTs <= 0) {
+        return json({ ok: true, count: 0 });
+      }
+      await ensureLetterAcksTable(env);
+      const row = await env.DB.prepare(
+        `SELECT COUNT(*) AS cnt
+           FROM letter_acks
+          WHERE room_tag = ? AND letter_ts = ?`
+      ).bind(roomTag, letterTs).first();
+      return json({ ok: true, roomTag, letterTs, count: Number(row?.cnt || 0) });
     }
 
     if (url.pathname === '/api/audit/logs' && request.method === 'GET') {
