@@ -24,3 +24,14 @@ ON audit_logs (event_id);
 
 CREATE INDEX IF NOT EXISTS idx_audit_logs_target_event_id
 ON audit_logs (target_event_id);
+
+CREATE TABLE IF NOT EXISTS melos_visitors (
+  room_tag TEXT NOT NULL,
+  ip_hash TEXT NOT NULL,
+  melos_number INTEGER NOT NULL,
+  assigned_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (room_tag, ip_hash)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_melos_visitors_room_number
+ON melos_visitors (room_tag, melos_number);

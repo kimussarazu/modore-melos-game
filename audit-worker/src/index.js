@@ -58,6 +58,22 @@ function toSafeText(v, max = 220) {
   return String(v || '').slice(0, max);
 }
 
+async function ensureMelosVisitorsTable(env) {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS melos_visitors (
+      room_tag TEXT NOT NULL,
+      ip_hash TEXT NOT NULL,
+      melos_number INTEGER NOT NULL,
+      assigned_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (room_tag, ip_hash)
+    )`
+  ).run();
+  await env.DB.prepare(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_melos_visitors_room_number
+     ON melos_visitors (room_tag, melos_number)`
+  ).run();
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -122,6 +138,62 @@ export default {
         .run();
 
       return json({ ok: true, id });
+    }
+
+    if (url.pathname === '/api/audit/melos-number' && request.method === 'GET') {
+      const roomTag = toSafeText(url.searchParams.get('room_tag') || 'modore-melos-board-v1', 64);
+      const ip =
+        request.headers.get('cf-connecting-ip') ||
+        request.headers.get('x-forwarded-for') ||
+        'unknown';
+      const ipHash = await sha256Hex(`${ip}|${env.IP_SALT || 'fallback_salt'}`);
+      const nowMs = Date.now();
+
+      await ensureMelosVisitorsTable(env);
+
+      const existing = await env.DB.prepare(
+        `SELECT melos_number
+           FROM melos_visitors
+          WHERE room_tag = ? AND ip_hash = ?
+          LIMIT 1`
+      ).bind(roomTag, ipHash).first();
+      if (existing && Number(existing.melos_number) > 0) {
+        return json({ ok: true, roomTag, melosNumber: Number(existing.melos_number) });
+      }
+
+      let assigned = 0;
+      for (let i = 0; i < 5; i++) {
+        const maxRow = await env.DB.prepare(
+          `SELECT COALESCE(MAX(melos_number), 0) AS max_num
+             FROM melos_visitors
+            WHERE room_tag = ?`
+        ).bind(roomTag).first();
+        const nextNumber = Number(maxRow?.max_num || 0) + 1;
+        try {
+          await env.DB.prepare(
+            `INSERT INTO melos_visitors (room_tag, ip_hash, melos_number, assigned_at_ms)
+             VALUES (?, ?, ?, ?)`
+          ).bind(roomTag, ipHash, nextNumber, nowMs).run();
+          assigned = nextNumber;
+          break;
+        } catch {
+          const retryExisting = await env.DB.prepare(
+            `SELECT melos_number
+               FROM melos_visitors
+              WHERE room_tag = ? AND ip_hash = ?
+              LIMIT 1`
+          ).bind(roomTag, ipHash).first();
+          if (retryExisting && Number(retryExisting.melos_number) > 0) {
+            assigned = Number(retryExisting.melos_number);
+            break;
+          }
+        }
+      }
+
+      if (assigned <= 0) {
+        return json({ ok: false, error: 'assign_failed' }, 500);
+      }
+      return json({ ok: true, roomTag, melosNumber: assigned });
     }
 
     if (url.pathname === '/api/audit/logs' && request.method === 'GET') {

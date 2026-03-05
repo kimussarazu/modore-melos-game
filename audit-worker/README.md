@@ -66,5 +66,6 @@ wrangler deploy
 ## API
 
 - `POST /api/audit/log` 投稿/削除ログ受信（公開）
+- `GET /api/audit/melos-number?room_tag=modore-melos-board-v1` 同一IPに同一の「○人目メロス番号」を返す（公開）
 - `GET /api/audit/logs?limit=240&include_deleted=1` 管理ログ閲覧（`x-admin-token` 必須）
 - `POST /api/audit/mark-deleted` 削除反映（`x-admin-token` 必須）

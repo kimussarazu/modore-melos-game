@@ -244,6 +244,12 @@
         #chatStatus {
             color: #b8e986;
             font-size: 0.56em;
+            margin-bottom: 3px;
+            min-height: 10px;
+        }
+        #melosOrdinal {
+            color: #ffe89a;
+            font-size: 0.54em;
             margin-bottom: 6px;
             min-height: 10px;
         }
@@ -501,6 +507,7 @@
             <div id="chatBoard">
                 <div id="chatTitle">歴代メロスの掲示板</div>
                 <div id="chatStatus">接続準備中...</div>
+                <div id="melosOrdinal">あなたは しらべちゅう の メロスです...</div>
                 <div id="chatLockedNotice">メンテナンス中のため、掲示板は停止しています。</div>
                 <div id="chatBoardContent">
                     <div id="chatMain">
@@ -560,6 +567,7 @@
         const normalButton = document.getElementById('normalButton');
         const hardButton = document.getElementById('hardButton');
         const chatStatus = document.getElementById('chatStatus');
+        const melosOrdinal = document.getElementById('melosOrdinal');
         const chatBoardContent = document.getElementById('chatBoardContent');
         const chatLockedNotice = document.getElementById('chatLockedNotice');
         const chatMessages = document.getElementById('chatMessages');
@@ -748,6 +756,7 @@
         const NOSTR_AUDIT_CONFIG_D = 'melos-audit-config-v1';
         const ADMIN_PUBKEY_STORAGE_KEY = 'melos_admin_pubkey';
         const AUDIT_API_BASE_KEY = 'melos_audit_api_base';
+        const MELOS_NUMBER_CACHE_KEY = 'melos_visitor_number_v1';
         const DEFAULT_AUDIT_API_BASE = 'https://melos-audit-worker.melos-audit-kimussarazu.workers.dev';
         const BOARD_RESET_TS = Date.parse('2026-03-04T14:04:47Z');
         const CHAT_BLOCK_PATTERNS = [
@@ -1131,6 +1140,48 @@
             }
         }
 
+        function updateMelosOrdinalText(value, isFallback = false) {
+            if (!melosOrdinal) return;
+            const num = Number(value || 0);
+            if (num > 0) {
+                melosOrdinal.textContent = `あなたは ${num}人目のメロスです`;
+                return;
+            }
+            melosOrdinal.textContent = isFallback
+                ? 'あなたのメロス番号を表示できませんでした'
+                : 'あなたは しらべちゅう の メロスです...';
+        }
+
+        async function refreshMelosOrdinal() {
+            const base = getAuditApiBase();
+            if (!base) {
+                updateMelosOrdinalText(0, true);
+                return;
+            }
+            const roomTag = encodeURIComponent(NOSTR_ROOM_TAG);
+            try {
+                const res = await fetch(`${base}/api/audit/melos-number?room_tag=${roomTag}&_=${Date.now()}`, {
+                    cache: 'no-store'
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                const num = Number(data && data.melosNumber ? data.melosNumber : 0);
+                if (num > 0) {
+                    localStorage.setItem(MELOS_NUMBER_CACHE_KEY, String(num));
+                    updateMelosOrdinalText(num);
+                    return;
+                }
+                throw new Error('invalid_number');
+            } catch {
+                const cached = Number(localStorage.getItem(MELOS_NUMBER_CACHE_KEY) || 0);
+                if (cached > 0) {
+                    updateMelosOrdinalText(cached);
+                    return;
+                }
+                updateMelosOrdinalText(0, true);
+            }
+        }
+
         function bytesToHex(bytes) {
             return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
         }
@@ -1361,6 +1412,7 @@
             chatState.auditApiBase = base;
             if (base) {
                 localStorage.setItem(AUDIT_API_BASE_KEY, base);
+                refreshMelosOrdinal();
             }
         }
 
@@ -1500,6 +1552,8 @@
         function initRealtimeChat() {
             if (chatState.initialized) return;
             chatState.initialized = true;
+            updateMelosOrdinalText(0);
+            refreshMelosOrdinal();
 
             const savedName = localStorage.getItem('melos_chat_name');
             if (savedName) chatNameInput.value = savedName;
@@ -1534,12 +1588,15 @@
                 startRealtimeHealthMonitor();
                 document.addEventListener('visibilitychange', async () => {
                     if (document.visibilityState !== 'visible') return;
+                    refreshMelosOrdinal();
                     await restartRealtimeSync('掲示板オンライン: 復帰時に再同期しました');
                 });
                 window.addEventListener('pageshow', async () => {
+                    refreshMelosOrdinal();
                     await restartRealtimeSync('掲示板オンライン: ページ復帰で再同期しました');
                 });
                 window.addEventListener('online', async () => {
+                    refreshMelosOrdinal();
                     await restartRealtimeSync('掲示板オンライン: 通信復帰で再同期しました');
                 });
                 chatStatus.textContent = '掲示板オンライン: リアルタイム同期中（端末間）';
