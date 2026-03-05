@@ -57,6 +57,22 @@
             min-width: 110px;
         }
         button.secondary { background: #4d4d4d; }
+        #lockOnBtn {
+            background: #8b1d1d;
+            border-color: #3f0000;
+            color: #ffe9e9;
+        }
+        #lockOnBtn:hover {
+            background: #a82626;
+        }
+        #lockOffBtn {
+            background: #1f6d2b;
+            border-color: #0b3512;
+            color: #e6ffea;
+        }
+        #lockOffBtn:hover {
+            background: #2a8a39;
+        }
         #status { color: #b8e986; min-height: 20px; }
         #commentList {
             max-height: 380px;
@@ -187,6 +203,7 @@
         <div class="row" style="margin-top:8px;">
             <button id="saveLetterBtn">手紙を掲示</button>
             <button id="deleteLetterBtn" class="secondary">手紙を削除</button>
+            <button id="syncLetterBtn" class="secondary">最新の「つくりてのてがみ」に更新</button>
         </div>
         <div id="letterStatus" style="margin-top:8px; color:#b8e986;">手紙状態: 未確認</div>
     </div>
@@ -233,6 +250,7 @@
         const letterInput = document.getElementById('letterInput');
         const saveLetterBtn = document.getElementById('saveLetterBtn');
         const deleteLetterBtn = document.getElementById('deleteLetterBtn');
+        const syncLetterBtn = document.getElementById('syncLetterBtn');
         const letterStatusEl = document.getElementById('letterStatus');
 
         const state = {
@@ -858,6 +876,56 @@
             publishModerationDelete(ids);
         }
 
+        async function syncLetterFromLatest() {
+            if (!state.pool) {
+                statusEl.textContent = '先に管理者として接続してください';
+                return;
+            }
+            letterStatusEl.textContent = '手紙状態: 最新取得中...';
+            const filtersPrimary = [{ kinds: [30078], '#d': [NOSTR_LETTER_D], limit: 100 }];
+            const filtersFallback = [{ kinds: [30078], limit: 220 }];
+            const primary = await Promise.all(
+                NOSTR_RELAYS.map((relay) => listFromRelay(relay, filtersPrimary, RELAY_TIMEOUT_MS))
+            );
+            let events = primary.flat();
+            if (events.length === 0) {
+                const fallback = await Promise.all(
+                    NOSTR_RELAYS.map((relay) => listFromRelay(relay, filtersFallback, RELAY_TIMEOUT_MS))
+                );
+                events = fallback.flat();
+            }
+            let latest = null;
+            let latestTs = 0;
+            events.forEach((event) => {
+                const dTag = (event.tags || []).find((tag) => Array.isArray(tag) && tag[0] === 'd');
+                const dValue = dTag && dTag[1] ? dTag[1] : '';
+                if (dValue !== NOSTR_LETTER_D) return;
+                const eventTs = (event.created_at || Math.floor(Date.now() / 1000)) * 1000;
+                if (eventTs >= latestTs) {
+                    latest = event;
+                    latestTs = eventTs;
+                }
+            });
+            if (!latest) {
+                letterStatusEl.textContent = '手紙状態: 取得失敗';
+                statusEl.textContent = '最新の手紙が見つかりませんでした';
+                return;
+            }
+            let payload = null;
+            try {
+                payload = JSON.parse(latest.content || '{}');
+            } catch {
+                payload = null;
+            }
+            const nextText = payload && typeof payload.text === 'string' ? payload.text.slice(0, 220) : '';
+            letterInput.value = nextText;
+            state.letterTs = latestTs;
+            state.pendingLetterText = null;
+            localStorage.setItem(LETTER_CACHE_KEY, nextText);
+            letterStatusEl.textContent = '手紙状態: 最新を同期';
+            statusEl.textContent = 'プレイ側の最新手紙を管理画面へ同期しました';
+        }
+
         function publishCreatorLetter(text) {
             const safeText = String(text || '').slice(0, 220);
             state.pendingLetterText = safeText;
@@ -909,6 +977,10 @@
                 return;
             }
             const nextLocked = !!locked;
+            const question = nextLocked
+                ? 'プレイ側を閉鎖します。誤操作でない場合のみOKを押してください。'
+                : 'プレイ側の閉鎖を解除します。よろしいですか？';
+            if (!window.confirm(question)) return;
             const ok = publishEvent({
                 kind: 30078,
                 created_at: Math.floor(Date.now() / 1000),
@@ -1009,6 +1081,7 @@
             letterInput.value = '';
             publishCreatorLetter('');
         });
+        syncLetterBtn.addEventListener('click', syncLetterFromLatest);
         lockOnBtn.addEventListener('click', () => publishSiteLock(true));
         lockOffBtn.addEventListener('click', () => publishSiteLock(false));
         loadAuditBtn.addEventListener('click', loadAuditLogs);
