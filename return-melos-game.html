@@ -175,6 +175,22 @@
         #muteButton:hover {
             background: #3a3a3a;
         }
+        #dinoButton {
+            position: absolute;
+            top: 58px;
+            right: 12px;
+            z-index: 6;
+            font-size: 0.68em;
+            padding: 11px 14px;
+            margin: 0;
+            background: #8a5a10;
+            border-width: 3px;
+            box-shadow: 4px 4px 0px #000;
+            display: none;
+        }
+        #dinoButton:hover {
+            background: #9d6a18;
+        }
 
         #instructions {
             font-size: 0.78em;
@@ -567,6 +583,12 @@
                 font-size: 0.55em;
                 padding: 8px 10px;
             }
+            #dinoButton {
+                top: 50px;
+                right: 10px;
+                font-size: 0.58em;
+                padding: 9px 10px;
+            }
         }
     </style>
 </head>
@@ -575,6 +597,7 @@
         <canvas id="gameCanvas"></canvas>
         <div id="score">残り: 0m</div>
         <button id="muteButton">SOUND: ON</button>
+        <button id="dinoButton">恐竜</button>
         
         <div id="startScreen">
             <canvas id="pixelArt" width="300" height="200"></canvas>
@@ -583,7 +606,7 @@
             <div id="letterNoticeBadge">新しい手紙が届いています（ページ最下部を確認）</div>
             <div id="instructions">
                 メロスは家に帰らなければならない<br><br>
-                PC: スペースでジャンプ（2段まで）<br>
+                PC: スペースでジャンプ（2段まで） / Bで恐竜（1回）<br>
                 スマホ: 画面タップでジャンプ（2段まで）<br>
                 長押しでジャンプが少しだけ伸びる<br>
                 障害物を避けながら家へ急げ！
@@ -658,6 +681,7 @@
         const finalScoreDisplay = document.getElementById('finalScore');
         const winMessage = document.getElementById('winMessage');
         const muteButton = document.getElementById('muteButton');
+        const dinoButton = document.getElementById('dinoButton');
         const easyButton = document.getElementById('easyButton');
         const normalButton = document.getElementById('normalButton');
         const hardButton = document.getElementById('hardButton');
@@ -705,6 +729,10 @@
         let distance = 0;
         let gameSpeed = 4;
         let frameCount = 0;
+        const DINO_DURATION_FRAMES = 600; // about 10 seconds at 60fps
+        const DINO_RECOVERY_INVUL_FRAMES = 36; // short grace after returning to Melos
+        const DINO_FIRE_INTERVAL = 48;
+        const DINO_FIRE_LIFE = 24;
         const GOAL_DISTANCE_METERS = 1500;
         const PIXELS_PER_METER = 4;
         const HOME_START_X = -(GOAL_DISTANCE_METERS * PIXELS_PER_METER);
@@ -906,6 +934,22 @@
             jumpBufferFrames: 0,
             maxJumpBufferFrames: 8
         };
+        const dinoState = {
+            available: true,
+            active: false,
+            timer: 0,
+            width: 116,
+            height: 64,
+            fireCooldown: 0,
+            vy: 0,
+            yOffset: 0,
+            grounded: true,
+            recoveryInvulFrames: 0,
+            thanksTimer: 0
+        };
+        const dinoExplosions = [];
+        const dinoDusts = [];
+        const dinoFires = [];
 
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
@@ -1039,6 +1083,13 @@
         // Input handling
         function jump() {
             if (!gameRunning) return;
+            if (dinoState.active) {
+                if (!dinoState.grounded) return;
+                dinoState.vy = -11.2;
+                dinoState.grounded = false;
+                playJumpSfx();
+                return;
+            }
             if (player.jumpsUsed >= player.maxJumps) return;
             if (player.jumpsUsed === 0 && !player.grounded && player.coyoteFrames <= 0) return;
             player.velocityY = player.jumpPower;
@@ -1076,6 +1127,13 @@
 
         // PC向け: スペースでジャンプ
         window.addEventListener('keydown', (e) => {
+            if (e.code === 'KeyB') {
+                const isDesktop = window.matchMedia('(pointer:fine)').matches;
+                if (!isDesktop) return;
+                e.preventDefault();
+                if (!e.repeat) activateDinoMode();
+                return;
+            }
             if (e.code !== 'Space') return;
             e.preventDefault();
             if (gameOverScreen.style.display === 'flex') {
@@ -1185,6 +1243,7 @@
             jumpHeld = false;
             stopBgm();
             updatePlayCursor(false);
+            updateDinoButtonUi();
             gameOverScreen.style.display = 'none';
             winScreen.style.display = 'none';
             startScreen.style.display = 'flex';
@@ -1193,6 +1252,100 @@
             drawPixelArtTitle();
             updateSiteLockUi();
             applyQueuedAutoUpdateIfIdle();
+        }
+
+        function updateDinoButtonUi() {
+            if (!gameRunning) {
+                dinoButton.style.display = 'none';
+                dinoButton.disabled = true;
+                dinoButton.textContent = '恐竜';
+                return;
+            }
+            dinoButton.style.display = 'block';
+            if (dinoState.active) {
+                const remainSec = Math.max(1, Math.ceil(dinoState.timer / 60));
+                dinoButton.disabled = true;
+                dinoButton.textContent = `恐竜 ${remainSec}s`;
+                return;
+            }
+            dinoButton.disabled = !dinoState.available;
+            const isDesktop = window.matchMedia('(pointer:fine)').matches;
+            if (dinoState.available) {
+                dinoButton.textContent = isDesktop ? '恐竜(B)' : '恐竜';
+            } else {
+                dinoButton.textContent = '恐竜 済';
+            }
+        }
+
+        function activateDinoMode() {
+            if (!gameRunning || dinoState.active || !dinoState.available) return;
+            dinoState.available = false;
+            dinoState.active = true;
+            dinoState.timer = DINO_DURATION_FRAMES;
+            dinoState.fireCooldown = 8;
+            dinoState.vy = 0;
+            dinoState.yOffset = 0;
+            dinoState.grounded = true;
+            dinoState.recoveryInvulFrames = 0;
+            chatStatus.textContent = '恐竜モード発動！10秒間つき進め！';
+            updateDinoButtonUi();
+        }
+
+        function isPlayerInvulnerable() {
+            return dinoState.active || dinoState.recoveryInvulFrames > 0;
+        }
+
+        function getDinoHitbox() {
+            const groundY = getGroundLevelAt(player.x + player.width * 0.5);
+            return {
+                x: player.x - 74,
+                y: Math.round(groundY - dinoState.height + dinoState.yOffset),
+                width: dinoState.width,
+                height: dinoState.height
+            };
+        }
+
+        function spawnDinoExplosion(cx, cy, power = 1) {
+            const count = Math.max(8, Math.floor(10 * power));
+            for (let i = 0; i < count; i++) {
+                const angle = (Math.PI * 2 * i) / count + Math.random() * 0.36;
+                const speed = 0.8 + Math.random() * (2.2 + power);
+                dinoExplosions.push({
+                    x: cx,
+                    y: cy,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed - 0.4,
+                    life: 18 + Math.floor(Math.random() * 10),
+                    color: Math.random() > 0.55 ? '#ffce45' : '#ff6d2d'
+                });
+            }
+        }
+
+        function spawnDinoDust() {
+            const dino = getDinoHitbox();
+            const footY = dino.y + dino.height - 2;
+            for (let i = 0; i < 2; i++) {
+                dinoDusts.push({
+                    x: dino.x + 26 + Math.random() * 60,
+                    y: footY + Math.random() * 4,
+                    vx: 0.8 + Math.random() * 0.9,
+                    vy: -0.3 - Math.random() * 0.6,
+                    life: 14 + Math.floor(Math.random() * 8),
+                    size: 2 + Math.floor(Math.random() * 2)
+                });
+            }
+        }
+
+        function spawnDinoFire() {
+            const dino = getDinoHitbox();
+            dinoFires.push({
+                x: dino.x - 2,
+                y: dino.y + 24,
+                size: 14,
+                vx: -6.6,
+                vy: -0.1 + Math.random() * 0.2,
+                life: DINO_FIRE_LIFE + 16
+            });
         }
 
         function setDeathCauseByObstacle(obstacle) {
@@ -2028,6 +2181,7 @@
         });
         backToTitleFromGameOver.addEventListener('click', returnToTitle);
         backToTitleFromWin.addEventListener('click', returnToTitle);
+        dinoButton.addEventListener('click', activateDinoMode);
         chatSendButton.addEventListener('click', sendChatMessage);
         chatMessages.addEventListener('click', (e) => {
             const target = e.target;
@@ -2136,11 +2290,15 @@
                     envelope: { attack: 0.005, decay: 0.14, sustain: 0.15, release: 0.18 }
                 }).toDestination();
 
-                // A♭ホールトーン（Ab, Bb, C, D, E, F#）中心の8bitループ
-                const leadPattern = ['G#5', 'A#5', 'C6', 'D6', 'E6', 'F#6', 'D6', 'C6'];
-                const bassPattern = ['G#2', null, 'C3', null, 'D3', null, 'F#2', null];
+                // 通常: A♭ホールトーン / 恐竜中: B♭ホールトーン
+                const leadPatternNormal = ['G#5', 'A#5', 'C6', 'D6', 'E6', 'F#6', 'D6', 'C6'];
+                const bassPatternNormal = ['G#2', null, 'C3', null, 'D3', null, 'F#2', null];
+                const leadPatternDino = ['A#5', 'C6', 'D6', 'E6', 'F#6', 'G#6', 'E6', 'D6'];
+                const bassPatternDino = ['A#2', null, 'D3', null, 'E3', null, 'G#2', null];
 
                 sound.loop = new Tone.Loop((time) => {
+                    const leadPattern = dinoState.active ? leadPatternDino : leadPatternNormal;
+                    const bassPattern = dinoState.active ? bassPatternDino : bassPatternNormal;
                     const index = sound.step % leadPattern.length;
                     const leadNote = leadPattern[index];
                     const bassNote = bassPattern[index];
@@ -2250,10 +2408,23 @@
             player.jumpHoldFrames = 0;
             player.coyoteFrames = 0;
             player.jumpBufferFrames = 0;
+            dinoState.available = true;
+            dinoState.active = false;
+            dinoState.timer = 0;
+            dinoState.fireCooldown = 0;
+            dinoState.vy = 0;
+            dinoState.yOffset = 0;
+            dinoState.grounded = true;
+            dinoState.recoveryInvulFrames = 0;
+            dinoState.thanksTimer = 0;
+            dinoExplosions.length = 0;
+            dinoDusts.length = 0;
+            dinoFires.length = 0;
             resizeCanvas();
             home.x = HOME_START_X;
             startScreen.style.display = 'none';
             updatePlayCursor(true);
+            updateDinoButtonUi();
             if (!sound.muted) {
                 startBgm();
             }
@@ -2337,8 +2508,61 @@
 
             // Check if reached home
             if (home.x + home.width >= player.x && home.x <= player.x + player.width) {
+                if (dinoState.active) {
+                    deathCause = '恐竜に乗ったまま帰宅してしまった';
+                    gameOver();
+                    return;
+                }
                 winGame();
                 return;
+            }
+
+            if (dinoState.active) {
+                dinoState.timer = Math.max(0, dinoState.timer - 1);
+                dinoState.vy += 0.58;
+                dinoState.vy = Math.min(10.5, dinoState.vy);
+                dinoState.yOffset += dinoState.vy;
+                const dinoBox = getDinoHitbox();
+                const groundY = getGroundLevelAt(player.x + player.width * 0.5);
+                const dinoGroundY = groundY - dinoState.height;
+                if (dinoBox.y >= dinoGroundY) {
+                    dinoState.yOffset = 0;
+                    dinoState.vy = 0;
+                    dinoState.grounded = true;
+                } else {
+                    dinoState.grounded = false;
+                }
+                const fixedDinoBox = getDinoHitbox();
+                player.y = fixedDinoBox.y - player.height + 6;
+                player.velocityY = 0;
+                player.grounded = true;
+                player.jumpsUsed = 0;
+                player.jumpHoldFrames = 0;
+                player.jumpBufferFrames = 0;
+                if (dinoState.grounded && frameCount % 2 === 0) {
+                    spawnDinoDust();
+                }
+                dinoState.fireCooldown = Math.max(0, dinoState.fireCooldown - 1);
+                if (dinoState.fireCooldown <= 0) {
+                    spawnDinoFire();
+                    dinoState.fireCooldown = DINO_FIRE_INTERVAL;
+                }
+                if (dinoState.timer <= 0) {
+                    dinoState.active = false;
+                    dinoState.vy = 0;
+                    dinoState.yOffset = 0;
+                    dinoState.grounded = true;
+                    dinoState.recoveryInvulFrames = DINO_RECOVERY_INVUL_FRAMES;
+                    dinoState.thanksTimer = 120;
+                    chatStatus.textContent = 'メロス「ありがとう！」';
+                }
+                updateDinoButtonUi();
+            }
+            if (dinoState.recoveryInvulFrames > 0) {
+                dinoState.recoveryInvulFrames--;
+            }
+            if (dinoState.thanksTimer > 0) {
+                dinoState.thanksTimer--;
             }
 
             // 終盤に王様をラスボスとして1体だけ出現
@@ -2441,7 +2665,31 @@
 
                 // 奥レイヤー（櫓/気球）は接触しない。地上の敵のみ接触判定
                 const obstacleHitbox = getObstacleHitbox(obstacles[i]);
-                if (obstacleHitbox && checkCollision(getPlayerHitbox(player), obstacleHitbox)) {
+                if (dinoState.active) {
+                    const dinoBox = getDinoHitbox();
+                    const targetBox = obstacleHitbox || {
+                        x: obstacles[i].x,
+                        y: obstacles[i].y,
+                        width: obstacles[i].width,
+                        height: obstacles[i].height
+                    };
+                    const fireHit = dinoFires.some((fire) => checkCollision({
+                        x: fire.x,
+                        y: fire.y,
+                        width: fire.size,
+                        height: fire.size
+                    }, targetBox));
+                    if (checkCollision(dinoBox, targetBox) || fireHit) {
+                        spawnDinoExplosion(
+                            targetBox.x + targetBox.width * 0.5,
+                            targetBox.y + targetBox.height * 0.5,
+                            obstacles[i].boss ? 1.5 : 1
+                        );
+                        obstacles.splice(i, 1);
+                        continue;
+                    }
+                }
+                if (!isPlayerInvulnerable() && obstacleHitbox && checkCollision(getPlayerHitbox(player), obstacleHitbox)) {
                     setDeathCauseByObstacle(obstacles[i]);
                     gameOver();
                     return;
@@ -2524,7 +2772,21 @@
                 }
 
                 const projectileHitbox = getProjectileHitbox(projectiles[i]);
-                if (checkCollision(getPlayerHitbox(player), projectileHitbox)) {
+                if (dinoState.active) {
+                    const dinoBox = getDinoHitbox();
+                    const fireHit = dinoFires.some((fire) => checkCollision({
+                        x: fire.x,
+                        y: fire.y,
+                        width: fire.size,
+                        height: fire.size
+                    }, projectileHitbox));
+                    if (checkCollision(dinoBox, projectileHitbox) || fireHit) {
+                        spawnDinoExplosion(projectileHitbox.x + projectileHitbox.width * 0.5, projectileHitbox.y + projectileHitbox.height * 0.5, 0.8);
+                        projectiles.splice(i, 1);
+                        continue;
+                    }
+                }
+                if (!isPlayerInvulnerable() && checkCollision(getPlayerHitbox(player), projectileHitbox)) {
                     deathCause = projectiles[i].variant === 'royal' ? '王の強化弾に撃たれた' : '矢に撃ち抜かれた';
                     gameOver();
                     return;
@@ -2548,7 +2810,21 @@
                     width: 30,
                     height: 20
                 };
-                if (checkCollision(getPlayerHitbox(player), chaserHitbox)) {
+                if (dinoState.active) {
+                    const dinoBox = getDinoHitbox();
+                    const fireHit = dinoFires.some((fire) => checkCollision({
+                        x: fire.x,
+                        y: fire.y,
+                        width: fire.size,
+                        height: fire.size
+                    }, chaserHitbox));
+                    if (checkCollision(dinoBox, chaserHitbox) || fireHit) {
+                        spawnDinoExplosion(chaserHitbox.x + chaserHitbox.width * 0.5, chaserHitbox.y + chaserHitbox.height * 0.5, 1.2);
+                        chasers.splice(i, 1);
+                        continue;
+                    }
+                }
+                if (!isPlayerInvulnerable() && checkCollision(getPlayerHitbox(player), chaserHitbox)) {
                     deathCause = '騎馬追手に轢かれた';
                     gameOver();
                     return;
@@ -2563,6 +2839,32 @@
                     cloud.y = Math.random() * 150 + 20;
                 }
             });
+
+            for (let i = dinoFires.length - 1; i >= 0; i--) {
+                const f = dinoFires[i];
+                f.x += f.vx;
+                f.y += f.vy;
+                f.life--;
+                if (f.life <= 0 || f.x + f.size < -30 || f.y < -30 || f.y > canvas.height + 30) {
+                    dinoFires.splice(i, 1);
+                }
+            }
+            for (let i = dinoDusts.length - 1; i >= 0; i--) {
+                const p = dinoDusts[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.04;
+                p.life--;
+                if (p.life <= 0) dinoDusts.splice(i, 1);
+            }
+            for (let i = dinoExplosions.length - 1; i >= 0; i--) {
+                const p = dinoExplosions[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.06;
+                p.life--;
+                if (p.life <= 0) dinoExplosions.splice(i, 1);
+            }
         }
 
         function checkCollision(rect1, rect2) {
@@ -2671,8 +2973,12 @@
                 if (obstacle.elevatedType) drawObstacle(obstacle);
             });
 
-            // Draw player (Red Melos) - pixel art style
-            drawMelos(player.x, player.y);
+            if (dinoState.active) {
+                drawDinoRide();
+            } else {
+                // Draw player (Red Melos) - pixel art style
+                drawMelos(player.x, player.y);
+            }
 
             // 手前の敵を後で描画
             obstacles.forEach(obstacle => {
@@ -2721,6 +3027,10 @@
                 drawArrow(projectile);
             });
 
+            drawDinoFireEffects();
+            drawDinoDustEffects();
+            drawDinoExplosionEffects();
+
             // Progress indicator
             const progress = Math.min(distance / GOAL_DISTANCE_METERS, 1);
             ctx.fillStyle = '#000';
@@ -2731,6 +3041,111 @@
             ctx.font = '12px "PixelMplus12", "Press Start 2P", monospace';
             const remainMeters = Math.max(0, GOAL_DISTANCE_METERS - distance);
             ctx.fillText(`${remainMeters}m`, 215, canvas.height - 15);
+
+            if (dinoState.thanksTimer > 0) {
+                const thanksAlpha = Math.min(1, dinoState.thanksTimer / 48);
+                const text = 'ありがとう';
+                const by = player.y - 24;
+                ctx.font = '10px "PixelMplus12", "Press Start 2P", monospace';
+                const textW = Math.ceil(ctx.measureText(text).width);
+                const bubbleW = textW + 10;
+                const bx = player.x - 10;
+                ctx.fillStyle = `rgba(255, 255, 255, ${0.94 * thanksAlpha})`;
+                ctx.fillRect(bx - 2, by - 12, bubbleW, 18);
+                ctx.fillStyle = `rgba(0, 0, 0, ${thanksAlpha})`;
+                ctx.fillText(text, bx + 2, by);
+            }
+        }
+
+        function drawDinoRide() {
+            const dino = getDinoHitbox();
+            const x = dino.x;
+            const y = dino.y;
+
+            const legPhase = Math.floor((frameCount % 24) / 6);
+            const legOffsetA = (legPhase === 0 || legPhase === 2) ? 0 : 2;
+            const legOffsetB = (legPhase === 1 || legPhase === 3) ? 0 : 2;
+
+            // Left-facing head + jaw
+            ctx.fillStyle = '#2f8f3f';
+            ctx.fillRect(x + 2, y + 8, 30, 20);
+            ctx.fillRect(x - 2, y + 22, 24, 8);
+            ctx.fillStyle = '#3fa652';
+            ctx.fillRect(x, y + 24, 20, 5);
+            ctx.fillStyle = '#101010';
+            ctx.fillRect(x + 8, y + 13, 3, 3);
+
+            // Body + ridge
+            ctx.fillStyle = '#2f8f3f';
+            ctx.fillRect(x + 24, y + 20, 72, 30);
+            ctx.fillStyle = '#226f31';
+            ctx.fillRect(x + 30, y + 14, 60, 8);
+
+            // Tail (right)
+            ctx.fillStyle = '#2f8f3f';
+            ctx.fillRect(x + 92, y + 30, 24, 10);
+            ctx.fillRect(x + 116, y + 33, 14, 6);
+
+            // Running legs (dino only)
+            ctx.fillStyle = '#266f32';
+            ctx.fillRect(x + 28, y + 50 + legOffsetA, 10, 14 - legOffsetA);
+            ctx.fillRect(x + 46, y + 50 + legOffsetB, 10, 14 - legOffsetB);
+            ctx.fillRect(x + 66, y + 50 + legOffsetA, 10, 14 - legOffsetA);
+            ctx.fillRect(x + 84, y + 50 + legOffsetB, 10, 14 - legOffsetB);
+
+            // Static rider Melos (legs do not move)
+            drawMelosStatic(x + 52, y - 8);
+
+            // Remaining time above rider
+            const remainSec = Math.max(0, Math.ceil(dinoState.timer / 60));
+            ctx.fillStyle = '#ffe89a';
+            ctx.font = '12px "PixelMplus12", "Press Start 2P", monospace';
+            ctx.fillText(`恐竜 ${remainSec}s`, x + 34, y - 12);
+        }
+
+        function drawMelosStatic(x, y) {
+            ctx.fillStyle = '#e1452d';
+            ctx.fillRect(x + 8, y + 12, 16, 20);
+            ctx.fillStyle = '#ffdbac';
+            ctx.fillRect(x + 10, y, 12, 12);
+            ctx.fillStyle = '#000';
+            ctx.fillRect(x + 12, y + 4, 3, 3);
+            ctx.fillRect(x + 17, y + 4, 3, 3);
+            ctx.fillStyle = '#e1452d';
+            ctx.fillRect(x + 5, y + 16, 4, 12);
+            ctx.fillRect(x + 23, y + 16, 4, 12);
+            ctx.fillRect(x + 10, y + 32, 4, 8);
+            ctx.fillRect(x + 18, y + 32, 4, 8);
+        }
+
+        function drawDinoFireEffects() {
+            dinoFires.forEach((fire) => {
+                const alpha = Math.max(0.2, fire.life / (DINO_FIRE_LIFE + 16));
+                ctx.fillStyle = `rgba(255, 124, 42, ${alpha * 0.55})`;
+                ctx.fillRect(fire.x + 6, fire.y + 3, 12, 8);
+                ctx.fillStyle = `rgba(255, 218, 112, ${alpha})`;
+                ctx.fillRect(fire.x, fire.y, fire.size, fire.size - 2);
+                ctx.fillStyle = `rgba(255, 90, 34, ${alpha})`;
+                ctx.fillRect(fire.x + 3, fire.y + 2, fire.size - 6, fire.size - 6);
+            });
+        }
+
+        function drawDinoDustEffects() {
+            dinoDusts.forEach((p) => {
+                const alpha = Math.max(0.15, p.life / 20);
+                ctx.fillStyle = `rgba(206, 176, 116, ${alpha})`;
+                ctx.fillRect(Math.floor(p.x), Math.floor(p.y), p.size, p.size);
+            });
+        }
+
+        function drawDinoExplosionEffects() {
+            dinoExplosions.forEach((p) => {
+                const alpha = Math.max(0.2, p.life / 24);
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = alpha;
+                ctx.fillRect(Math.floor(p.x), Math.floor(p.y), 3, 3);
+                ctx.globalAlpha = 1;
+            });
         }
 
         function drawPixelCloud(x, y, width) {
@@ -3079,6 +3494,7 @@
             gameRunning = false;
             stopBgm();
             updatePlayCursor(false);
+            updateDinoButtonUi();
             playHitSfx();
             const cause = deathCause || '力尽きた';
             finalScoreDisplay.innerHTML = `走行距離: ${score}m / ${GOAL_DISTANCE_METERS}m<br>死因: ${cause}`;
@@ -3090,6 +3506,7 @@
             gameRunning = false;
             stopBgm();
             updatePlayCursor(false);
+            updateDinoButtonUi();
             playGoalSfx();
             winMessage.textContent = `メロスは無事に家に帰り着いた！\n走行距離: ${score}m`;
             winMessage.style.fontSize = '0.8em';
