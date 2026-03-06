@@ -74,10 +74,32 @@
         }
 
         #startScreen {
+            position: absolute;
             background: #2c1810;
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
             padding: 16px 10px 20px;
+        }
+        #startScreen.milestone {
+            background: #5b4513;
+        }
+        #startScreen.milestone::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.9;
+            background-image:
+                radial-gradient(circle, rgba(255, 239, 153, 0.9) 0 1.3px, rgba(255, 239, 153, 0) 2px),
+                radial-gradient(circle, rgba(255, 215, 96, 0.85) 0 1.1px, rgba(255, 215, 96, 0) 1.9px),
+                radial-gradient(circle, rgba(255, 247, 201, 0.85) 0 0.9px, rgba(255, 247, 201, 0) 1.7px);
+            background-size: 140px 140px, 170px 170px, 120px 120px;
+            background-position: 0 -120px, 60px -180px, 110px -80px;
+            animation: milestoneGlitterFall 5.6s linear infinite;
+        }
+        #startScreen.milestone > * {
+            position: relative;
+            z-index: 1;
         }
 
         #gameOverScreen, #winScreen {
@@ -257,6 +279,15 @@
             min-height: 10px;
             text-shadow: 2px 2px 0 #000;
             text-align: center;
+        }
+        .melosCelebrate {
+            color: #ffd700;
+            margin-right: 4px;
+            text-shadow: 2px 2px 0 #000;
+        }
+        @keyframes milestoneGlitterFall {
+            from { background-position: 0 -120px, 60px -180px, 110px -80px; }
+            to { background-position: 0 520px, 60px 480px, 110px 560px; }
         }
         #letterNoticeBadge {
             display: none;
@@ -529,7 +560,7 @@
         
         <div id="startScreen">
             <canvas id="pixelArt" width="300" height="200"></canvas>
-            <h1>戻れメロス</h1>
+            <h1 id="titleHeading">戻れメロス</h1>
             <div id="melosOrdinal">あなたは しらべちゅう の メロスです...</div>
             <div id="letterNoticeBadge">新しい手紙が届いています（ページ最下部を確認）</div>
             <div id="instructions">
@@ -761,6 +792,7 @@
             jumpSynth: null,
             hitSynth: null,
             goalSynth: null,
+            milestoneSynth: null,
             loop: null,
             step: 0
         };
@@ -810,6 +842,10 @@
         const PLAY_LETTER_TS_CACHE_KEY = 'melos_play_letter_ts_v1';
         const DEFAULT_AUDIT_API_BASE = 'https://melos-audit-worker.melos-audit-kimussarazu.workers.dev';
         const BOARD_RESET_TS = Date.parse('2026-03-04T14:04:47Z');
+        const MILESTONE_STEP = 50;
+        const MILESTONE_START = 100;
+        const MILESTONE_PREVIEW_PARAM = 'milestone_preview';
+        const MILESTONE_SEEN_KEY = 'melos_milestone_seen_v1';
         const CHAT_BLOCK_PATTERNS = [
             // 下ネタ
             /まんこ|ちんこ|ちんちん|おっぱい|ぱいぱい|せっくす|セックス|えろ|エロ|変態|オナニー/i,
@@ -825,6 +861,11 @@
         let autoUpdateTimer = null;
         let autoUpdateKnownSignature = '';
         let autoUpdateQueued = false;
+        const milestoneState = {
+            activeNumber: 0,
+            pendingSpecialSe: false,
+            previewNumber: 0
+        };
 
         // Player - Red Melos
         const player = {
@@ -1258,17 +1299,76 @@
             const num = Number(value || 0);
             if (num > 0) {
                 melosOrdinal.textContent = `あなたは ${num}人目のメロスです`;
+                melosOrdinal.dataset.number = String(num);
                 return;
             }
+            melosOrdinal.dataset.number = '0';
             melosOrdinal.textContent = isFallback
                 ? 'あなたのメロス番号を表示できませんでした'
                 : 'あなたは しらべちゅう の メロスです...';
+        }
+
+        function getMilestoneNumber(value) {
+            const num = Number(value || 0);
+            if (!Number.isFinite(num)) return 0;
+            if (num < MILESTONE_START) return 0;
+            if (num % MILESTONE_STEP !== 0) return 0;
+            return Math.floor(num);
+        }
+
+        function readMilestonePreviewFromQuery() {
+            try {
+                const params = new URLSearchParams(location.search || '');
+                const value = Number(params.get(MILESTONE_PREVIEW_PARAM) || 0);
+                if (!Number.isFinite(value) || value <= 0) return 0;
+                return Math.floor(value);
+            } catch {
+                return 0;
+            }
+        }
+
+        function applyMilestoneUi(milestoneNumber) {
+            const n = Number(milestoneNumber || 0);
+            const enabled = n > 0;
+            startScreen.classList.toggle('milestone', enabled);
+            if (melosOrdinal) {
+                const currentNum = Number(melosOrdinal.dataset.number || 0);
+                const displayNum = currentNum > 0 ? currentNum : n;
+                if (displayNum > 0) {
+                    melosOrdinal.innerHTML = enabled
+                        ? `<span class="melosCelebrate">祝！</span>あなたは ${displayNum}人目のメロスです`
+                        : `あなたは ${displayNum}人目のメロスです`;
+                }
+            }
+            milestoneState.activeNumber = enabled ? n : 0;
+        }
+
+        function updateMilestoneByMelosNumber(melosNumber) {
+            const previewNumber = milestoneState.previewNumber;
+            if (previewNumber > 0) {
+                applyMilestoneUi(previewNumber);
+                milestoneState.pendingSpecialSe = false;
+                return;
+            }
+            const milestoneNumber = getMilestoneNumber(melosNumber);
+            if (milestoneNumber <= 0) {
+                applyMilestoneUi(0);
+                milestoneState.pendingSpecialSe = false;
+                return;
+            }
+            applyMilestoneUi(milestoneNumber);
+            const seen = Number(localStorage.getItem(MILESTONE_SEEN_KEY) || 0);
+            if (seen !== milestoneNumber) {
+                localStorage.setItem(MILESTONE_SEEN_KEY, String(milestoneNumber));
+                milestoneState.pendingSpecialSe = true;
+            }
         }
 
         async function refreshMelosOrdinal() {
             const base = getAuditApiBase();
             if (!base) {
                 updateMelosOrdinalText(0, true);
+                updateMilestoneByMelosNumber(0);
                 return;
             }
             const roomTag = encodeURIComponent(NOSTR_ROOM_TAG);
@@ -1283,6 +1383,7 @@
                 if (num > 0) {
                     localStorage.setItem(MELOS_NUMBER_CACHE_KEY, String(num));
                     updateMelosOrdinalText(num);
+                    updateMilestoneByMelosNumber(num);
                     return;
                 }
                 throw new Error('invalid_number');
@@ -1290,9 +1391,11 @@
                 const cached = Number(localStorage.getItem(MELOS_NUMBER_CACHE_KEY) || 0);
                 if (cached > 0) {
                     updateMelosOrdinalText(cached);
+                    updateMilestoneByMelosNumber(cached);
                     return;
                 }
                 updateMelosOrdinalText(0, true);
+                updateMilestoneByMelosNumber(0);
             }
         }
 
@@ -1991,6 +2094,10 @@
                     oscillator: { type: 'square' },
                     envelope: { attack: 0.01, decay: 0.2, sustain: 0.3, release: 0.2 }
                 }).toDestination();
+                sound.milestoneSynth = new Tone.PolySynth(Tone.Synth, {
+                    oscillator: { type: 'square' },
+                    envelope: { attack: 0.005, decay: 0.14, sustain: 0.15, release: 0.18 }
+                }).toDestination();
 
                 // A♭ホールトーン（Ab, Bb, C, D, E, F#）中心の8bitループ
                 const leadPattern = ['G#5', 'A#5', 'C6', 'D6', 'E6', 'F#6', 'D6', 'C6'];
@@ -2046,6 +2153,14 @@
             sound.goalSynth.triggerAttackRelease(['D5', 'F5', 'A5'], '8n', now + 0.2, 0.22);
         }
 
+        function playMilestoneSfx() {
+            if (!sound.initialized || sound.muted || !sound.milestoneSynth) return;
+            const now = Tone.now();
+            sound.milestoneSynth.triggerAttackRelease(['G4', 'C5', 'E5'], '16n', now, 0.22);
+            sound.milestoneSynth.triggerAttackRelease(['A4', 'D5', 'F#5'], '16n', now + 0.14, 0.22);
+            sound.milestoneSynth.triggerAttackRelease(['C5', 'E5', 'A5'], '8n', now + 0.3, 0.26);
+        }
+
         function toggleMute() {
             sound.muted = !sound.muted;
             if (typeof Tone !== 'undefined') {
@@ -2070,6 +2185,10 @@
                 return;
             }
             await prepareAudio();
+            if (milestoneState.pendingSpecialSe) {
+                playMilestoneSfx();
+                milestoneState.pendingSpecialSe = false;
+            }
             currentDifficulty = DIFFICULTIES[selectedDifficulty];
             gameRunning = true;
             score = 0;
@@ -2945,6 +3064,8 @@
         }
 
         // Draw pixel art on start screen
+        milestoneState.previewNumber = readMilestonePreviewFromQuery();
+        updateMilestoneByMelosNumber(0);
         drawPixelArtTitle();
         initRealtimeChat();
         updateSiteLockUi();
