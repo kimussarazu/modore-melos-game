@@ -454,6 +454,14 @@
             box-shadow: 2px 2px 0 #000;
             background: #4b4b4b;
         }
+        #chatInstantLatestButton {
+            font-size: 0.58em;
+            padding: 8px 10px;
+            margin: 0;
+            border-width: 2px;
+            box-shadow: 2px 2px 0 #000;
+            background: #8a5a10;
+        }
 
         #backToTitleFromGameOver {
             background: #4b4b4b;
@@ -600,6 +608,7 @@
                             <input id="chatInput" class="chatInput" maxlength="80" placeholder="メッセージ（80字まで）">
                             <button id="chatSendButton">送信</button>
                             <button id="chatRefreshButton">更新</button>
+                            <button id="chatInstantLatestButton">最新へ</button>
                         </div>
                     </div>
                     <div id="creatorLetter">
@@ -662,6 +671,7 @@
         const chatInput = document.getElementById('chatInput');
         const chatSendButton = document.getElementById('chatSendButton');
         const chatRefreshButton = document.getElementById('chatRefreshButton');
+        const chatInstantLatestButton = document.getElementById('chatInstantLatestButton');
         const creatorLetterBody = document.getElementById('creatorLetterBody');
         const letterSeenWrap = document.getElementById('letterSeenWrap');
         const letterSeenCheckbox = document.getElementById('letterSeenCheckbox');
@@ -1456,6 +1466,7 @@
             chatInput.disabled = locked;
             chatSendButton.disabled = locked;
             chatRefreshButton.disabled = locked;
+            chatInstantLatestButton.disabled = locked;
             chatJumpLatestButton.disabled = locked;
             if (locked) {
                 chatStatus.textContent = '掲示板はメンテナンス中のため停止しています';
@@ -1533,6 +1544,16 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
             chatState.pendingLatestCount = 0;
             updateJumpLatestButton();
+        }
+
+        function buildDeleteConfirmText(messageId) {
+            const record = chatState.messages.get(messageId);
+            if (!record) {
+                return 'このコメントを本当に削除しますか？';
+            }
+            const name = String(record.name || '名無しメロス').slice(0, 12);
+            const text = String(record.text || '').slice(0, 80);
+            return `「${name}：${text}」\n本当に削除しますか？`;
         }
 
         function hasValidDeleteClaim(messageId, authorPubkey) {
@@ -2012,6 +2033,9 @@
             if (!(target instanceof HTMLElement)) return;
             if (target.dataset.action !== 'delete') return;
             const key = target.dataset.key || '';
+            if (!key) return;
+            const ok = window.confirm(buildDeleteConfirmText(key));
+            if (!ok) return;
             deleteOwnMessage(key);
         });
         chatMessages.addEventListener('scroll', () => {
@@ -2021,6 +2045,9 @@
             updateJumpLatestButton();
         });
         chatJumpLatestButton.addEventListener('click', () => {
+            scrollChatToLatest();
+        });
+        chatInstantLatestButton.addEventListener('click', () => {
             scrollChatToLatest();
         });
         chatRefreshButton.addEventListener('click', () => {
