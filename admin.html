@@ -179,6 +179,10 @@
             <button id="saveAuditConfigBtn" class="secondary">監査設定を保存</button>
             <button id="toggleIpViewBtn" class="secondary">IPをフル表示</button>
         </div>
+        <div class="row" style="margin-bottom:8px;">
+            <input id="auditIpFilterInput" placeholder="IP検索（部分一致/完全一致。例: 203.0.113 / 2001:db8）">
+            <button id="clearAuditIpFilterBtn" class="secondary">IP検索を解除</button>
+        </div>
         <div id="auditStatus" class="empty">監査ログ未取得</div>
         <div id="auditList"><div class="empty">監査ログはまだ表示されていません。</div></div>
     </div>
@@ -241,6 +245,8 @@
         const loadAuditBtn = document.getElementById('loadAuditBtn');
         const saveAuditConfigBtn = document.getElementById('saveAuditConfigBtn');
         const toggleIpViewBtn = document.getElementById('toggleIpViewBtn');
+        const auditIpFilterInput = document.getElementById('auditIpFilterInput');
+        const clearAuditIpFilterBtn = document.getElementById('clearAuditIpFilterBtn');
         const auditStatusEl = document.getElementById('auditStatus');
         const auditListEl = document.getElementById('auditList');
         const commentList = document.getElementById('commentList');
@@ -281,7 +287,8 @@
             lastRealtimeEventAt: 0,
             healthTimer: null,
             letterAckCount: 0,
-            letterAckTs: 0
+            letterAckTs: 0,
+            auditIpFilter: ''
         };
         const AUTO_REFRESH_MS = 15000;
 
@@ -416,24 +423,49 @@
             return ip;
         }
 
+        function normalizeAuditIpFilter(text) {
+            return String(text || '').trim().toLowerCase();
+        }
+
+        function rowMatchesAuditIpFilter(row, filter) {
+            if (!filter) return true;
+            const rawIp = String(row.ip || '').trim().toLowerCase();
+            const maskedIp = String(row.ipMasked || row.ip_masked || '').trim().toLowerCase();
+            const ipHash = String(row.ipHash || row.ip_hash || '').trim().toLowerCase();
+            const source = `${rawIp} ${maskedIp} ${ipHash}`;
+            return source.includes(filter);
+        }
+
         function renderAuditLogs() {
             const rows = Array.isArray(state.auditLogs) ? state.auditLogs : [];
+            const filter = normalizeAuditIpFilter(state.auditIpFilter);
+            const filteredRows = filter ? rows.filter((row) => rowMatchesAuditIpFilter(row, filter)) : rows;
             if (rows.length === 0) {
                 state.lastAuditRenderKey = 'empty';
                 auditListEl.innerHTML = '<div class="empty">監査ログはありません。</div>';
                 return;
             }
-            const nextKey = `${rows.length}:${rows.map((row) => `${row.eventId || row.event_id || ''}:${row.isDeleted || row.is_deleted ? 1 : 0}`).slice(0, 120).join('|')}`;
+            if (filter) {
+                auditStatusEl.textContent = `監査ログ表示: ${filteredRows.length}件 / 全${rows.length}件（IP検索: ${filter}）`;
+            } else {
+                auditStatusEl.textContent = `監査ログ取得完了（${rows.length}件）`;
+            }
+            if (filteredRows.length === 0) {
+                state.lastAuditRenderKey = `empty_filter:${filter}:${rows.length}`;
+                auditListEl.innerHTML = '<div class="empty">該当するIPの監査ログはありません。</div>';
+                return;
+            }
+            const nextKey = `${filter}:${state.showFullIp ? 1 : 0}:${filteredRows.length}:${filteredRows.map((row) => `${row.eventId || row.event_id || ''}:${row.isDeleted || row.is_deleted ? 1 : 0}`).slice(0, 120).join('|')}`;
             if (nextKey === state.lastAuditRenderKey) return;
             state.lastAuditRenderKey = nextKey;
             const prevScrollTop = auditListEl.scrollTop;
             const byEventId = new Map();
-            rows.forEach((row) => {
+            filteredRows.forEach((row) => {
                 const eventId = String(row.eventId || row.event_id || '').trim();
                 if (!eventId || byEventId.has(eventId)) return;
                 byEventId.set(eventId, row);
             });
-            auditListEl.innerHTML = rows.map((row) => {
+            auditListEl.innerHTML = filteredRows.map((row) => {
                 const createdAt = row.createdAtMs || row.created_at_ms || 0;
                 const time = formatTime(createdAt);
                 const action = escapeHtml(row.action || 'unknown');
@@ -1279,6 +1311,15 @@
             }
             state.showFullIp = !state.showFullIp;
             updateIpToggleButton();
+            renderAuditLogs();
+        });
+        auditIpFilterInput.addEventListener('input', () => {
+            state.auditIpFilter = String(auditIpFilterInput.value || '');
+            renderAuditLogs();
+        });
+        clearAuditIpFilterBtn.addEventListener('click', () => {
+            state.auditIpFilter = '';
+            auditIpFilterInput.value = '';
             renderAuditLogs();
         });
         autoRefreshToggle.addEventListener('change', () => {

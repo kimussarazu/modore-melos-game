@@ -226,7 +226,7 @@
             right: -2px;
             width: 146px;
             min-height: 0;
-            padding: 5px 6px 2px;
+            padding: 4px 6px 1px;
             background: rgba(245, 236, 200, 0.9);
             border: 3px solid #7b6b3f;
             color: #2a1f12;
@@ -253,11 +253,13 @@
 
         #creatorLetterTitle {
             font-size: 0.86em;
-            margin: 0 0 1px;
+            margin: 0;
+            line-height: 1.05;
             color: #593d1f;
         }
         #creatorLetterBody {
-            margin: 0;
+            margin: 0 0 1px;
+            line-height: 1.28;
         }
 
         #chatTitle {
@@ -359,12 +361,13 @@
         }
         #letterSeenWrap {
             display: none;
-            margin-top: 2px;
-            padding-top: 2px;
+            margin-top: 1px;
+            padding-top: 1px;
             padding-bottom: 0;
             border-top: 1px dashed #7b6b3f;
             color: #3b2b18;
             font-size: 0.84em;
+            line-height: 1;
         }
         #letterSeenWrap label {
             display: flex;
@@ -372,7 +375,7 @@
             gap: 5px;
             cursor: pointer;
             margin: 0;
-            line-height: 1.1;
+            line-height: 1;
         }
         #letterSeenCheckbox {
             margin: 0;
@@ -513,7 +516,7 @@
             #creatorLetter {
                 position: static;
                 width: 100%;
-                min-height: 74px;
+                min-height: 0;
                 transform: none;
                 margin-top: 4px;
             }
