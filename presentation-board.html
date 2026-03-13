@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>戻れメロス - プレゼン説明ボード</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --line: #e5e7eb;
+      --blue: #2563eb;
+      --green: #16a34a;
+      --orange: #ea580c;
+      --purple: #7c3aed;
+      --slate: #475569;
+      --panel: #f8fafc;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.6;
+    }
+    .wrap {
+      max-width: 1220px;
+      margin: 0 auto;
+      padding: 24px 24px 60px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 34px;
+      letter-spacing: 0.01em;
+    }
+    .subtitle {
+      margin: 0 0 16px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+    .board {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: #fff;
+      padding: 16px;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.06);
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid #e5e7eb;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: #374151;
+      background: #fff;
+    }
+    .dot { width: 10px; height: 10px; border-radius: 999px; }
+
+    .map-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .map-btn {
+      border: 1px solid #d1d5db;
+      background: #fff;
+      color: #1f2937;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .map-btn.active {
+      background: #111827;
+      color: #fff;
+      border-color: #111827;
+    }
+    .signal-map {
+      position: relative;
+      height: 420px;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      background: linear-gradient(180deg, #ffffff, #f8fafc);
+      overflow: hidden;
+    }
+    .signal-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .link {
+      stroke: #b6c0cf;
+      stroke-width: 2.6;
+      fill: none;
+      marker-end: url(#arrowHead);
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .link.bi {
+      marker-start: url(#arrowHead);
+    }
+    .flow-path { opacity: 0; }
+    .flow-path.active { opacity: 1; }
+    .signal-map.flow-on .flow-path.active {
+      stroke-dasharray: 9 8;
+      animation: dashMove 1.2s linear infinite;
+    }
+    .link.post { stroke: #2563eb; }
+    .link.letter { stroke: #16a34a; }
+    .link.audit { stroke: #7c3aed; }
+    @keyframes dashMove { to { stroke-dashoffset: -34; } }
+
+    .runner {
+      opacity: 0;
+      fill: #111827;
+      filter: drop-shadow(0 0 4px rgba(0,0,0,0.28));
+    }
+    .signal-map.flow-on .runner.active { opacity: 1; }
+    .link-label {
+      fill: #6b7280;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .station {
+      position: absolute;
+      width: 200px;
+      border: 1px solid #d1d5db;
+      border-radius: 14px;
+      background: #fff;
+      padding: 10px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.06);
+    }
+    .station h3 {
+      margin: 0 0 4px;
+      font-size: 14px;
+    }
+    .station p {
+      margin: 0;
+      color: #4b5563;
+      font-size: 12px;
+    }
+    .station.client { border-top: 4px solid var(--blue); }
+    .station.page { border-top: 4px solid var(--green); }
+    .station.relay { border-top: 4px solid var(--orange); }
+    .station.api { border-top: 4px solid var(--purple); }
+    .station.db { border-top: 4px solid var(--slate); }
+
+    .icon-set {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 6px;
+      align-items: center;
+    }
+    .icon-phone, .icon-pc, .icon-cloud, .icon-stack, .icon-db {
+      position: relative;
+      background: #fff;
+      border: 1px solid #94a3b8;
+    }
+    .icon-phone { width: 18px; height: 30px; border-radius: 4px; }
+    .icon-phone::before { content: ''; position: absolute; left: 6px; top: 2px; width: 6px; height: 1px; background: #cbd5e1; }
+    .icon-pc { width: 30px; height: 20px; border-radius: 4px; }
+    .icon-pc::before { content: ''; position: absolute; left: 8px; right: 8px; bottom: -3px; height: 2px; background: #cbd5e1; }
+    .icon-cloud { width: 30px; height: 18px; border-radius: 12px; }
+    .icon-stack { width: 26px; height: 20px; border-radius: 3px; }
+    .icon-stack::before, .icon-stack::after {
+      content: '';
+      position: absolute;
+      left: 2px; right: 2px;
+      height: 3px;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+    }
+    .icon-stack::before { top: 4px; }
+    .icon-stack::after { top: 10px; }
+    .icon-db {
+      width: 24px;
+      height: 24px;
+      border-radius: 12px / 6px;
+    }
+
+    .station.player { left: 26px; top: 24px; }
+    .station.admin { left: 26px; top: 228px; }
+    .station.pages { left: 280px; top: 122px; }
+    .station.relay { left: 530px; top: 40px; }
+    .station.api { left: 530px; top: 228px; }
+    .station.db { left: 772px; top: 138px; width: 180px; }
+
+    .section-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 16px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+      padding: 12px;
+    }
+    .card h2 {
+      margin: 0 0 8px;
+      font-size: 18px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      background: #fff;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    th, td {
+      border: 1px solid #e5e7eb;
+      padding: 7px 8px;
+      vertical-align: top;
+    }
+    th {
+      background: #f9fafb;
+      text-align: left;
+      font-size: 12px;
+      color: #4b5563;
+    }
+    details {
+      margin-top: 8px;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      background: #fff;
+      padding: 7px 10px;
+    }
+    summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: #1f2937;
+    }
+    .easy-mode .tech-only { display: none; }
+    .tech-mode .easy-only { display: none; }
+
+    .term {
+      border: 0;
+      background: transparent;
+      color: #2563eb;
+      text-decoration: underline dotted;
+      text-underline-offset: 2px;
+      cursor: help;
+      font: inherit;
+      padding: 0;
+    }
+    .term:focus { outline: 2px solid #93c5fd; outline-offset: 2px; border-radius: 4px; }
+
+    #termPopup {
+      position: fixed;
+      z-index: 9999;
+      max-width: 360px;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity 0.15s ease, transform 0.15s ease;
+      background: #111827;
+      color: #fff;
+      border-radius: 10px;
+      padding: 10px 11px;
+      box-shadow: 0 10px 22px rgba(0,0,0,0.22);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    #termPopup.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    #termPopup b {
+      color: #fde68a;
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    @media (max-width: 980px) {
+      .section-grid { grid-template-columns: 1fr; }
+      h1 { font-size: 28px; }
+      .wrap { padding: 16px; }
+    }
+  </style>
+</head>
+<body class="easy-mode">
+  <div class="wrap">
+    <h1>戻れメロス 仕組み説明ボード</h1>
+
+    <section class="board">
+      <div class="legend">
+        <span class="chip"><span class="dot" style="background:var(--blue)"></span>端末</span>
+        <span class="chip"><span class="dot" style="background:var(--green)"></span>表示ページ</span>
+        <span class="chip"><span class="dot" style="background:var(--orange)"></span>リアルタイム配信</span>
+        <span class="chip"><span class="dot" style="background:var(--purple)"></span>API</span>
+        <span class="chip"><span class="dot" style="background:var(--slate)"></span>データ保存</span>
+      </div>
+
+      <div class="map-toolbar">
+        <button class="map-btn active" data-flow="idle">全体</button>
+        <button class="map-btn" data-flow="post">掲示板投稿の流れ</button>
+        <button class="map-btn" data-flow="letter">手紙更新の流れ</button>
+        <button class="map-btn" data-flow="audit">監査・集計の流れ</button>
+      </div>
+
+      <div class="signal-map" id="signalMap">
+        <svg class="signal-svg" viewBox="0 0 980 420" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <marker id="arrowHead" markerWidth="5" markerHeight="5" refX="4.6" refY="2.5" orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M0,0 L5,2.5 L0,5 z" fill="#94a3b8"></path>
+            </marker>
+          </defs>
+          <path class="link base" d="M220 70 C250 70, 260 150, 280 150" />
+          <path class="link base" d="M220 275 C250 275, 260 180, 280 160" />
+          <path class="link base bi" d="M480 155 L530 120" />
+          <path class="link base" d="M480 165 L530 270" />
+          <path class="link base bi" d="M730 270 C760 270, 760 190, 772 176" />
+          <text class="link-label" x="350" y="136">表示/操作</text>
+          <text class="link-label" x="496" y="128">リアルタイム</text>
+          <text class="link-label" x="500" y="230">API呼び出し</text>
+          <text class="link-label" x="752" y="222">保存/集計</text>
+
+          <path class="link post flow-path bi" data-flow="post" d="M220 70 C250 70, 260 150, 280 150" />
+          <path class="link post flow-path bi" data-flow="post" d="M480 155 L530 120" />
+          <path class="link post flow-path bi" data-flow="post" d="M530 120 C480 120, 470 145, 470 150" />
+
+          <path class="link letter flow-path bi" data-flow="letter" d="M220 275 C250 275, 260 180, 280 160" />
+          <path class="link letter flow-path bi" data-flow="letter" d="M480 155 L530 120" />
+          <path class="link letter flow-path bi" data-flow="letter" d="M530 120 C480 120, 470 145, 470 150" />
+
+          <path class="link audit flow-path" data-flow="audit" d="M470 165 C500 185, 510 255, 530 270" />
+          <path class="link audit flow-path bi" data-flow="audit" d="M730 270 C760 270, 760 190, 772 176" />
+          <path class="link audit flow-path bi" data-flow="audit" d="M220 275 C250 275, 260 180, 280 160" />
+          <path class="link audit flow-path" data-flow="audit" d="M480 165 C500 185, 510 255, 530 270" />
+
+          <circle class="runner flow-path" data-flow="post" r="5">
+            <animateMotion dur="1.8s" repeatCount="indefinite" path="M220 70 C250 70, 260 150, 280 150 L480 155 L530 120" />
+          </circle>
+          <circle class="runner flow-path" data-flow="letter" r="5">
+            <animateMotion dur="2.1s" repeatCount="indefinite" path="M220 275 C250 275, 260 180, 280 160 L480 155 L530 120" />
+          </circle>
+          <circle class="runner flow-path" data-flow="audit" r="5">
+            <animateMotion dur="1.9s" repeatCount="indefinite" path="M470 165 C500 185, 510 255, 530 270 C760 270, 760 190, 772 176" />
+          </circle>
+        </svg>
+
+        <article class="station client player">
+          <h3>プレイヤー端末</h3>
+          <div class="icon-set"><span class="icon-phone"></span><span class="icon-pc"></span></div>
+          <p>ゲームを開き、投稿や確認チェックを送る</p>
+        </article>
+
+        <article class="station client admin">
+          <h3>管理者端末</h3>
+          <div class="icon-set"><span class="icon-pc"></span></div>
+          <p>手紙更新・削除・監査確認を行う</p>
+        </article>
+
+        <article class="station page pages">
+          <h3>GitHub Pages</h3>
+          <div class="icon-set"><span class="icon-stack"></span></div>
+          <p>`return-melos-game.html` / `admin.html` を表示</p>
+        </article>
+
+        <article class="station relay">
+          <h3><button class="term" data-term="nostr">Nostr</button> Relay</h3>
+          <div class="icon-set"><span class="icon-cloud"></span></div>
+          <p>掲示板・手紙などをリアルタイム共有（DBへは直接保存しない）</p>
+        </article>
+
+        <article class="station api">
+          <h3><button class="term" data-term="worker">Worker</button> API</h3>
+          <div class="icon-set"><span class="icon-stack"></span></div>
+          <p>監査ログ・何人目・確認人数を処理</p>
+        </article>
+
+        <article class="station db">
+          <h3><button class="term" data-term="d1">D1</button> Database</h3>
+          <div class="icon-set"><span class="icon-db"></span></div>
+          <p>ログと集計データを保存</p>
+        </article>
+      </div>
+    </section>
+
+    <div class="section-grid">
+      <section class="card">
+        <h2>プレイ側の信号（何が送られる？）</h2>
+        <table>
+          <thead>
+            <tr><th>送信元</th><th>信号</th><th>送信先</th><th>結果</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>プレイヤー</td><td>掲示板投稿</td><td>Nostr</td><td>全端末に新着表示</td></tr>
+            <tr><td>プレイヤー</td><td>コメント削除</td><td>Nostr</td><td>全端末で削除反映</td></tr>
+            <tr><td>プレイヤー</td><td>プレイログ</td><td>Worker API</td><td>D1に監査保存</td></tr>
+            <tr><td>プレイヤー</td><td>何人目取得</td><td>Worker API</td><td>タイトル下に番号表示</td></tr>
+            <tr><td>プレイヤー</td><td>手紙確認チェック</td><td>Worker API</td><td>確認人数に加算</td></tr>
+          </tbody>
+        </table>
+
+        <details>
+          <summary>やさしい説明</summary>
+          <p class="easy-only">プレイヤーの操作は「みんなに見せる情報（Nostr）」と「記録する情報（Worker）」に分けて送られます。</p>
+          <p class="tech-only">投稿/削除は Nostr イベント、監査や番号/確認チェックは REST API で Worker に送信されます。</p>
+        </details>
+      </section>
+
+      <section class="card">
+        <h2>管理側の信号（運用で使う流れ）</h2>
+        <table>
+          <thead>
+            <tr><th>送信元</th><th>信号</th><th>送信先</th><th>結果</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>管理画面</td><td>手紙更新</td><td>Nostr</td><td>プレイ側へ即反映</td></tr>
+            <tr><td>管理画面</td><td>削除イベント</td><td>Nostr</td><td>掲示板から消える</td></tr>
+            <tr><td>管理画面</td><td>監査ログ取得</td><td>Worker API</td><td>D1のログを表示</td></tr>
+            <tr><td>管理画面</td><td>手紙確認人数取得</td><td>Worker API</td><td>現在人数を表示</td></tr>
+            <tr><td>管理画面</td><td>メンテON/OFF</td><td>Nostr</td><td>プレイ開始可否を切替</td></tr>
+          </tbody>
+        </table>
+
+        <details>
+          <summary>よく使う専門用語（ホバー/クリックで説明）</summary>
+          <p>
+            <button class="term" data-term="nostr">Nostr</button> /
+            <button class="term" data-term="relay">Relay</button> /
+            <button class="term" data-term="worker">Worker</button> /
+            <button class="term" data-term="d1">D1</button> /
+            <button class="term" data-term="uid">端末UID</button>
+          </p>
+        </details>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top: 14px;">
+      <h2>プレゼン用 60秒台本</h2>
+      <ol>
+        <li>このゲームは「表示ページ」「リアルタイム共有」「記録API」の3層に分けて運用しています。</li>
+        <li>掲示板や手紙は Nostr で即時共有されるので、会話や通知がリアルタイムで反映されます。</li>
+        <li>一方、監査ログ・人数集計・確認数は Worker + D1 に保存し、管理画面から安全に確認できます。</li>
+      </ol>
+    </section>
+  </div>
+
+  <div id="termPopup" role="status" aria-live="polite"></div>
+
+  <script>
+    const signalMap = document.getElementById('signalMap');
+    const flowButtons = Array.from(document.querySelectorAll('.map-btn'));
+    const flowPaths = Array.from(document.querySelectorAll('.flow-path'));
+
+    function setFlow(mode) {
+      flowButtons.forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.flow === mode);
+      });
+      const isIdle = mode === 'idle';
+      signalMap.classList.toggle('flow-on', !isIdle);
+      flowPaths.forEach((el) => {
+        el.classList.toggle('active', !isIdle && el.dataset.flow === mode);
+      });
+    }
+
+    flowButtons.forEach((btn) => {
+      btn.addEventListener('click', () => setFlow(btn.dataset.flow || 'idle'));
+    });
+    setFlow('idle');
+
+    const TERMS = {
+      nostr: {
+        title: 'Nostr',
+        body: 'ログイン不要でも使える分散型メッセージ基盤。ここでは掲示板や手紙のリアルタイム反映に使っています。'
+      },
+      relay: {
+        title: 'Relay',
+        body: 'Nostrイベントを中継するサーバー。複数Relayに送ることで反映の安定性を上げています。'
+      },
+      worker: {
+        title: 'Cloudflare Worker',
+        body: '軽量APIサーバー。監査ログ保存、何人目メロス採番、手紙確認人数の集計を担当します。'
+      },
+      d1: {
+        title: 'D1 Database',
+        body: 'CloudflareのSQLite系DB。監査ログや確認チェック数など、後で参照したいデータを保存します。'
+      },
+      uid: {
+        title: '端末UID',
+        body: '端末ごとの識別ID。何人目メロスの採番を同一Wi-Fi内でも端末単位で分けるために使います。'
+      }
+    };
+
+    const popup = document.getElementById('termPopup');
+    let hideTimer = null;
+    let pinned = false;
+
+    function showPopup(target, key) {
+      const term = TERMS[key];
+      if (!term) return;
+      popup.innerHTML = `<b>${term.title}</b><div>${term.body}</div>`;
+      const rect = target.getBoundingClientRect();
+      const top = Math.min(window.innerHeight - 120, rect.bottom + 8);
+      const left = Math.min(window.innerWidth - 380, Math.max(8, rect.left));
+      popup.style.top = `${top}px`;
+      popup.style.left = `${left}px`;
+      popup.classList.add('show');
+    }
+
+    function hidePopup() {
+      if (pinned) return;
+      popup.classList.remove('show');
+    }
+
+    document.querySelectorAll('.term').forEach((el) => {
+      const key = el.dataset.term;
+      el.addEventListener('mouseenter', () => {
+        pinned = false;
+        clearTimeout(hideTimer);
+        showPopup(el, key);
+      });
+      el.addEventListener('mouseleave', () => {
+        hideTimer = setTimeout(hidePopup, 120);
+      });
+      el.addEventListener('focus', () => {
+        pinned = false;
+        showPopup(el, key);
+      });
+      el.addEventListener('blur', () => {
+        hidePopup();
+      });
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        pinned = true;
+        showPopup(el, key);
+      });
+    });
+
+    document.addEventListener('click', (e) => {
+      const t = e.target;
+      if (t instanceof HTMLElement && t.classList.contains('term')) return;
+      pinned = false;
+      hidePopup();
+    });
+  </script>
+</body>
+</html>
