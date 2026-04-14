@@ -2845,9 +2845,10 @@
                 umiState.wingPhase += 0.34;
                 const groundY = getGroundLevelAt(player.x + player.width * 0.5);
                 const playerCenterX = player.x + player.width * 0.5;
+                const isMobileLike = window.matchMedia('(pointer:coarse)').matches;
                 if (umiState.phase === 'incoming') {
                     const targetX = player.x - 24;
-                    const targetY = player.y - 84;
+                    const targetY = player.y - (isMobileLike ? 58 : 84);
                     umiState.x += (targetX - umiState.x) * 0.2;
                     umiState.y += (targetY - umiState.y) * 0.2;
                     if (Math.abs(umiState.x - targetX) < 6 && Math.abs(umiState.y - targetY) < 6) {
@@ -2864,7 +2865,7 @@
                     }
                 } else if (umiState.phase === 'carrying') {
                     umiState.timer = Math.max(0, umiState.timer - 1);
-                    let desiredY = 150 + Math.sin(frameCount * 0.08) * 34;
+                    let desiredY = (isMobileLike ? 196 : 150) + Math.sin(frameCount * 0.08) * (isMobileLike ? 20 : 34);
                     const avoidBand = 170;
                     for (let i = 0; i < projectiles.length; i++) {
                         const p = projectiles[i];
@@ -2887,7 +2888,9 @@
                         if (Math.abs((ch.x || 0) - playerCenterX) > avoidBand) continue;
                         desiredY -= 45;
                     }
-                    desiredY = Math.max(86, Math.min(groundY - 150, desiredY));
+                    const minFlightY = isMobileLike ? 170 : 86;
+                    const maxFlightY = groundY - (isMobileLike ? 118 : 150);
+                    desiredY = Math.max(minFlightY, Math.min(maxFlightY, desiredY));
                     umiState.targetY = desiredY;
                     umiState.y += (umiState.targetY - umiState.y) * 0.16;
                     umiState.x = player.x - 22 + Math.sin(umiState.wingPhase * 0.5) * 2;
