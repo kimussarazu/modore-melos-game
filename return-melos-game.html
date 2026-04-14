@@ -983,6 +983,8 @@
             // 下ネタ
             /まんこ|ちんこ|ちんちん|おっぱい|ぱいぱい|せっくす|セックス|えろ|エロ|変態|オナニー/i,
             /ちくび|乳首|陰部|精液|射精|勃起|中出し|フェラ|クンニ|アナル/i,
+            // 英字系（記号挟み・大文字小文字・一部leetは正規化で吸収）
+            /sex|sexy|porn|nude|naked|hentai|ero|fuck|fuc+k|fck|dick|pussy|blowjob/i,
             // 脅迫・恐喝・違法行為
             /恐喝|脅迫|脅す|金を払え|金払え|払わないと|晒す|拡散するぞ|殺す|死ね|しね/i,
             /レイプ|強姦|強かん|誘拐|拉致|放火|爆破|薬物|覚醒剤|大麻|麻薬/i,
@@ -1658,6 +1660,13 @@
             return String(text || '')
                 .toLowerCase()
                 .normalize('NFKC')
+                // 代表的なleet置換（s3x / p0rn など）
+                .replace(/0/g, 'o')
+                .replace(/1/g, 'i')
+                .replace(/3/g, 'e')
+                .replace(/4/g, 'a')
+                .replace(/5/g, 's')
+                .replace(/7/g, 't')
                 // 記号挟み回避（例: 勃☆起 / せ*っ*く*す）を潰す
                 .replace(/[^\p{L}\p{N}]+/gu, '');
         }
