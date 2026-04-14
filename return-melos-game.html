@@ -177,7 +177,7 @@
         }
         #dinoButton {
             position: absolute;
-            top: 58px;
+            top: 64px;
             right: 12px;
             z-index: 6;
             font-size: 0.68em;
@@ -190,6 +190,22 @@
         }
         #dinoButton:hover {
             background: #9d6a18;
+        }
+        #umiButton {
+            position: absolute;
+            top: 116px;
+            right: 12px;
+            z-index: 6;
+            font-size: 0.6em;
+            padding: 10px 12px;
+            margin: 0;
+            background: #2a5f87;
+            border-width: 3px;
+            box-shadow: 4px 4px 0px #000;
+            display: none;
+        }
+        #umiButton:hover {
+            background: #3472a2;
         }
 
         #instructions {
@@ -584,10 +600,16 @@
                 padding: 8px 10px;
             }
             #dinoButton {
-                top: 50px;
+                top: 52px;
                 right: 10px;
                 font-size: 0.58em;
                 padding: 9px 10px;
+            }
+            #umiButton {
+                top: 94px;
+                right: 10px;
+                font-size: 0.55em;
+                padding: 8px 10px;
             }
         }
     </style>
@@ -598,6 +620,7 @@
         <div id="score">残り: 0m</div>
         <button id="muteButton">SOUND: ON</button>
         <button id="dinoButton">恐竜</button>
+        <button id="umiButton">ウミガラス</button>
         
         <div id="startScreen">
             <canvas id="pixelArt" width="300" height="200"></canvas>
@@ -683,6 +706,7 @@
         const winMessage = document.getElementById('winMessage');
         const muteButton = document.getElementById('muteButton');
         const dinoButton = document.getElementById('dinoButton');
+        const umiButton = document.getElementById('umiButton');
         const easyButton = document.getElementById('easyButton');
         const normalButton = document.getElementById('normalButton');
         const hardButton = document.getElementById('hardButton');
@@ -734,6 +758,9 @@
         const DINO_DURATION_FRAMES = 600; // about 10 seconds at 60fps
         const DINO_RECOVERY_INVUL_FRAMES = 36; // short grace after returning to Melos
         const DINO_KICK_RECOVERY_INVUL_FRAMES = 150; // star-like grace after giant dino kick
+        const UMI_DURATION_FRAMES = 520;
+        const UMI_RECOVERY_INVUL_FRAMES = 90;
+        const UMI_FLYOFF_FRAMES = 110;
         const DINO_FIRE_INTERVAL = 48;
         const DINO_FIRE_LIFE = 24;
         const DINO_TANK_STRIKE_DELAY_FRAMES = 300; // about 5 seconds
@@ -898,6 +925,7 @@
             hitSynth: null,
             goalSynth: null,
             milestoneSynth: null,
+            umiChordSynth: null,
             loop: null,
             step: 0
         };
@@ -1004,6 +1032,27 @@
             recoveryInvulFrames: 0,
             thanksTimer: 0,
             thanksText: 'ありがとう'
+        };
+        const umiState = {
+            enabled: true, // 期間限定イベント用スイッチ
+            available: true,
+            active: false,
+            phase: 'idle', // idle -> incoming -> grab -> carrying -> landing
+            timer: 0,
+            x: 0,
+            y: -80,
+            targetY: 180,
+            wingPhase: 0,
+            grabTimer: 0,
+            recoveryInvulFrames: 0,
+            flyOffActive: false,
+            flyOffTimer: 0,
+            flyX: 0,
+            flyY: 0,
+            flyVx: 0,
+            flyVy: 0,
+            ororonTimer: 0,
+            chordIndex: 0
         };
         const dinoExplosions = [];
         const dinoDusts = [];
@@ -1169,6 +1218,7 @@
         // Input handling
         function jump() {
             if (!gameRunning) return;
+            if (umiState.active) return;
             if (dinoState.active) {
                 if (!dinoState.grounded) return;
                 dinoState.vy = -11.2;
@@ -1213,6 +1263,13 @@
 
         // PC向け: スペースでジャンプ
         window.addEventListener('keydown', (e) => {
+            if (e.code === 'KeyN') {
+                const isDesktop = window.matchMedia('(pointer:fine)').matches;
+                if (!isDesktop) return;
+                e.preventDefault();
+                if (!e.repeat) activateUmiMode();
+                return;
+            }
             if (e.code === 'KeyB') {
                 const isDesktop = window.matchMedia('(pointer:fine)').matches;
                 if (!isDesktop) return;
@@ -1345,26 +1402,47 @@
                 dinoButton.style.display = 'none';
                 dinoButton.disabled = true;
                 dinoButton.textContent = '恐竜';
+                umiButton.style.display = 'none';
+                umiButton.disabled = true;
+                umiButton.textContent = 'ウミガラス';
                 return;
             }
             dinoButton.style.display = 'block';
+            umiButton.style.display = umiState.enabled ? 'block' : 'none';
             if (dinoState.active) {
                 const remainSec = Math.max(1, Math.ceil(dinoState.timer / 60));
                 dinoButton.disabled = true;
                 dinoButton.textContent = `恐竜 ${remainSec}s`;
-                return;
-            }
-            dinoButton.disabled = !dinoState.available;
-            const isDesktop = window.matchMedia('(pointer:fine)').matches;
-            if (dinoState.available) {
-                dinoButton.textContent = isDesktop ? '恐竜(B)' : '恐竜';
             } else {
-                dinoButton.textContent = '恐竜 済';
+                dinoButton.disabled = !dinoState.available || umiState.active;
+                const isDesktop = window.matchMedia('(pointer:fine)').matches;
+                if (dinoState.available) {
+                    dinoButton.textContent = isDesktop ? '恐竜(B)' : '恐竜';
+                } else {
+                    dinoButton.textContent = '恐竜 済';
+                }
+            }
+            if (umiState.enabled) {
+                if (umiState.active) {
+                    const remainSec = Math.max(1, Math.ceil(umiState.timer / 60));
+                    umiButton.disabled = true;
+                    umiButton.textContent = `ウミガラス ${remainSec}s`;
+                } else if (umiState.flyOffActive) {
+                    umiButton.disabled = true;
+                    umiButton.textContent = 'ウミガラス 去り中';
+                } else {
+                    umiButton.disabled = !umiState.available || dinoState.active;
+                    const isDesktop = window.matchMedia('(pointer:fine)').matches;
+                    umiButton.textContent = umiState.available ? (isDesktop ? 'ウミガラス(N)' : 'ウミガラス') : 'ウミガラス 済';
+                }
+            } else {
+                umiButton.disabled = true;
+                umiButton.textContent = 'ウミガラス';
             }
         }
 
         function activateDinoMode() {
-            if (!gameRunning || dinoState.active || !dinoState.available) return;
+            if (!gameRunning || dinoState.active || umiState.active || !dinoState.available) return;
             dinoState.available = false;
             dinoState.active = true;
             dinoState.timer = DINO_DURATION_FRAMES;
@@ -1384,8 +1462,33 @@
             updateDinoButtonUi();
         }
 
+        function activateUmiMode() {
+            if (!umiState.enabled) return;
+            if (!gameRunning || dinoState.active || umiState.active || !umiState.available) return;
+            umiState.available = false;
+            umiState.active = true;
+            umiState.phase = 'incoming';
+            umiState.timer = 0;
+            umiState.x = player.x - 20;
+            umiState.y = -82;
+            umiState.targetY = umiState.y;
+            umiState.wingPhase = 0;
+            umiState.grabTimer = 0;
+            umiState.recoveryInvulFrames = 0;
+            umiState.ororonTimer = 0;
+            umiState.chordIndex = 0;
+            if (sound.initialized && !sound.muted && sound.umiChordSynth) {
+                const now = Tone.now();
+                // 押した瞬間にAmを即時開始（ラグ対策）
+                sound.umiChordSynth.releaseAll(now);
+                sound.umiChordSynth.triggerAttackRelease(['A3', 'C4', 'E4'], '1m', now, 0.16);
+                umiState.chordIndex = 1; // 次はA♭
+            }
+            updateDinoButtonUi();
+        }
+
         function isPlayerInvulnerable() {
-            return dinoState.active || dinoState.recoveryInvulFrames > 0;
+            return dinoState.active || dinoState.recoveryInvulFrames > 0 || umiState.active || umiState.recoveryInvulFrames > 0;
         }
 
         function deactivateDinoMode(showThanks = true, thanksText = 'ありがとう', invulFrames = DINO_RECOVERY_INVUL_FRAMES) {
@@ -2347,6 +2450,7 @@
         backToTitleFromGameOver.addEventListener('click', returnToTitle);
         backToTitleFromWin.addEventListener('click', returnToTitle);
         dinoButton.addEventListener('click', activateDinoMode);
+        umiButton.addEventListener('click', activateUmiMode);
         chatSendButton.addEventListener('click', sendChatMessage);
         chatMessages.addEventListener('click', (e) => {
             const target = e.target;
@@ -2454,21 +2558,42 @@
                     oscillator: { type: 'square' },
                     envelope: { attack: 0.005, decay: 0.14, sustain: 0.15, release: 0.18 }
                 }).toDestination();
+                sound.umiChordSynth = new Tone.PolySynth(Tone.Synth, {
+                    oscillator: { type: 'square' },
+                    envelope: { attack: 0.02, decay: 0.12, sustain: 0.42, release: 0.22 }
+                }).toDestination();
+                sound.umiChordSynth.volume.value = -8;
 
-                // 通常: A♭ホールトーン / 恐竜中: B♭ホールトーン
+                // 通常: A♭ホールトーン / 恐竜中: B♭ホールトーン / ウミガラス中: Am <-> A♭ コード持続
                 const leadPatternNormal = ['G#5', 'A#5', 'C6', 'D6', 'E6', 'F#6', 'D6', 'C6'];
                 const bassPatternNormal = ['G#2', null, 'C3', null, 'D3', null, 'F#2', null];
                 const leadPatternDino = ['A#5', 'C6', 'D6', 'E6', 'F#6', 'G#6', 'E6', 'D6'];
                 const bassPatternDino = ['A#2', null, 'D3', null, 'E3', null, 'G#2', null];
 
                 sound.loop = new Tone.Loop((time) => {
-                    const leadPattern = dinoState.active ? leadPatternDino : leadPatternNormal;
-                    const bassPattern = dinoState.active ? bassPatternDino : bassPatternNormal;
-                    const index = sound.step % leadPattern.length;
-                    const leadNote = leadPattern[index];
-                    const bassNote = bassPattern[index];
-                    if (leadNote) sound.leadSynth.triggerAttackRelease(leadNote, '16n', time, 0.18);
-                    if (bassNote) sound.bassSynth.triggerAttackRelease(bassNote, '8n', time, 0.15);
+                    const useUmi = umiState.active;
+                    const useDino = dinoState.active;
+                    if (useUmi) {
+                        // メロディ無し: Am と A♭ を交互に、重なり無しで長めに鳴らす
+                        // 8stepごと(=1小節ごと)に切替えて、ハーフテンポ感を出す
+                        if (sound.step % 8 === 0 && sound.umiChordSynth) {
+                            const chord = (umiState.chordIndex % 2 === 0)
+                                ? ['A3', 'C4', 'E4']      // Am
+                                : ['G#3', 'C4', 'D#4'];   // A♭
+                            // 前コードを明示停止して、混ざりを完全に防ぐ
+                            sound.umiChordSynth.releaseAll(time);
+                            sound.umiChordSynth.triggerAttackRelease(chord, '1m', time, 0.16);
+                            umiState.chordIndex++;
+                        }
+                    } else {
+                        const leadPattern = useDino ? leadPatternDino : leadPatternNormal;
+                        const bassPattern = useDino ? bassPatternDino : bassPatternNormal;
+                        const index = sound.step % leadPattern.length;
+                        const leadNote = leadPattern[index];
+                        const bassNote = bassPattern[index];
+                        if (leadNote) sound.leadSynth.triggerAttackRelease(leadNote, '16n', time, 0.18);
+                        if (bassNote) sound.bassSynth.triggerAttackRelease(bassNote, '8n', time, 0.15);
+                    }
                     sound.step++;
                 }, '8n');
 
@@ -2583,6 +2708,24 @@
             dinoState.recoveryInvulFrames = 0;
             dinoState.thanksTimer = 0;
             dinoState.thanksText = 'ありがとう';
+            umiState.available = true;
+            umiState.active = false;
+            umiState.phase = 'idle';
+            umiState.timer = 0;
+            umiState.x = 0;
+            umiState.y = -80;
+            umiState.targetY = 180;
+            umiState.wingPhase = 0;
+            umiState.grabTimer = 0;
+            umiState.recoveryInvulFrames = 0;
+            umiState.flyOffActive = false;
+            umiState.flyOffTimer = 0;
+            umiState.flyX = 0;
+            umiState.flyY = 0;
+            umiState.flyVx = 0;
+            umiState.flyVy = 0;
+            umiState.ororonTimer = 0;
+            umiState.chordIndex = 0;
             dinoExplosions.length = 0;
             dinoDusts.length = 0;
             dinoFires.length = 0;
@@ -2689,10 +2832,99 @@
                     gameOver();
                     return;
                 }
+                if (umiState.active) {
+                    deathCause = 'ウミガラスに掴まれたまま帰宅してしまった';
+                    gameOver();
+                    return;
+                }
                 winGame();
                 return;
             }
 
+            if (umiState.active) {
+                umiState.wingPhase += 0.34;
+                const groundY = getGroundLevelAt(player.x + player.width * 0.5);
+                const playerCenterX = player.x + player.width * 0.5;
+                if (umiState.phase === 'incoming') {
+                    const targetX = player.x - 24;
+                    const targetY = player.y - 84;
+                    umiState.x += (targetX - umiState.x) * 0.2;
+                    umiState.y += (targetY - umiState.y) * 0.2;
+                    if (Math.abs(umiState.x - targetX) < 6 && Math.abs(umiState.y - targetY) < 6) {
+                        umiState.phase = 'grab';
+                        umiState.grabTimer = 18;
+                    }
+                } else if (umiState.phase === 'grab') {
+                    umiState.grabTimer--;
+                    umiState.x = player.x - 24;
+                    umiState.y = player.y - 84;
+                    if (umiState.grabTimer <= 0) {
+                        umiState.phase = 'carrying';
+                        umiState.timer = UMI_DURATION_FRAMES;
+                    }
+                } else if (umiState.phase === 'carrying') {
+                    umiState.timer = Math.max(0, umiState.timer - 1);
+                    let desiredY = 150 + Math.sin(frameCount * 0.08) * 34;
+                    const avoidBand = 170;
+                    for (let i = 0; i < projectiles.length; i++) {
+                        const p = projectiles[i];
+                        if (Math.abs((p.x || 0) - playerCenterX) > avoidBand) continue;
+                        const py = Number(p.y || 0);
+                        if (py < desiredY + 56 && py > desiredY - 48) {
+                            desiredY += (py < desiredY + 6) ? 58 : -58;
+                        }
+                    }
+                    for (let i = 0; i < obstacles.length; i++) {
+                        const ob = obstacles[i];
+                        if (Math.abs((ob.x || 0) - playerCenterX) > avoidBand) continue;
+                        const oy = Number(ob.y || 0);
+                        if (oy < desiredY + 72 && oy > desiredY - 62) {
+                            desiredY += (oy < desiredY + 6) ? 52 : -52;
+                        }
+                    }
+                    for (let i = 0; i < chasers.length; i++) {
+                        const ch = chasers[i];
+                        if (Math.abs((ch.x || 0) - playerCenterX) > avoidBand) continue;
+                        desiredY -= 45;
+                    }
+                    desiredY = Math.max(86, Math.min(groundY - 150, desiredY));
+                    umiState.targetY = desiredY;
+                    umiState.y += (umiState.targetY - umiState.y) * 0.16;
+                    umiState.x = player.x - 22 + Math.sin(umiState.wingPhase * 0.5) * 2;
+                    player.y = umiState.y + 34;
+                    player.velocityY = 0;
+                    player.grounded = false;
+                    player.jumpsUsed = 0;
+                    player.jumpHoldFrames = 0;
+                    player.jumpBufferFrames = 0;
+                    if (umiState.timer <= 0) {
+                        umiState.phase = 'landing';
+                    }
+                } else if (umiState.phase === 'landing') {
+                    const landY = groundY - player.height - 4;
+                    umiState.x = player.x - 20;
+                    umiState.y += (landY - umiState.y) * 0.2;
+                    player.y = umiState.y + 34;
+                    player.velocityY = 0;
+                    player.grounded = false;
+                    if (Math.abs((umiState.y + 34) - landY) < 4) {
+                        umiState.active = false;
+                        umiState.phase = 'idle';
+                        umiState.recoveryInvulFrames = UMI_RECOVERY_INVUL_FRAMES;
+                        player.y = groundY - player.height;
+                        player.velocityY = 0;
+                        player.grounded = true;
+                        umiState.flyOffActive = true;
+                        umiState.flyOffTimer = UMI_FLYOFF_FRAMES;
+                        umiState.flyX = umiState.x - 8;
+                        umiState.flyY = umiState.y - 6;
+                        umiState.flyVx = 4.9;
+                        umiState.flyVy = -2.6;
+                        umiState.ororonTimer = 70;
+                    }
+                }
+                updateDinoButtonUi();
+            }
             if (dinoState.active) {
                 dinoState.timer = Math.max(0, dinoState.timer - 1);
                 if (selectedDifficulty === 'europeanExtreme' && dinoTankState.pendingStrikeFrames > 0) {
@@ -2742,8 +2974,26 @@
             if (dinoState.recoveryInvulFrames > 0) {
                 dinoState.recoveryInvulFrames--;
             }
+            if (umiState.recoveryInvulFrames > 0) {
+                umiState.recoveryInvulFrames--;
+            }
             if (dinoState.thanksTimer > 0) {
                 dinoState.thanksTimer--;
+            }
+            if (umiState.flyOffActive) {
+                umiState.flyX += umiState.flyVx;
+                umiState.flyY += umiState.flyVy;
+                umiState.flyVy -= 0.015;
+                umiState.flyOffTimer--;
+                if (umiState.ororonTimer > 0) umiState.ororonTimer--;
+                if (
+                    umiState.flyOffTimer <= 0 ||
+                    umiState.flyX > canvas.width + 80 ||
+                    umiState.flyY < -120
+                ) {
+                    umiState.flyOffActive = false;
+                    umiState.ororonTimer = 0;
+                }
             }
             if (dinoTankState.active) {
                 dinoTankState.flashFrames = Math.max(0, dinoTankState.flashFrames - 1);
@@ -3230,9 +3480,11 @@
 
             if (dinoState.active) {
                 drawDinoRide();
+            } else if (umiState.active && umiState.phase !== 'incoming') {
+                drawUmiRide();
             } else {
                 // 無敵復帰中はスター風に光って点滅
-                if (dinoState.recoveryInvulFrames > 0) {
+                if (dinoState.recoveryInvulFrames > 0 || umiState.recoveryInvulFrames > 0) {
                     const blinkOn = Math.floor(frameCount / 4) % 2 === 0;
                     const pulse = 0.55 + (Math.sin(frameCount * 0.42) + 1) * 0.2;
                     ctx.save();
@@ -3306,6 +3558,12 @@
             drawDinoKickShockEffects();
             drawDinoDustEffects();
             drawDinoExplosionEffects();
+            if (umiState.active) {
+                drawUmiRide();
+            }
+            if (umiState.flyOffActive) {
+                drawUmiFlyOff();
+            }
 
             // Progress indicator
             const progress = Math.min(distance / GOAL_DISTANCE_METERS, 1);
@@ -3377,6 +3635,73 @@
             ctx.fillStyle = '#ffe89a';
             ctx.font = '12px "PixelMplus12", "Press Start 2P", monospace';
             ctx.fillText(`恐竜 ${remainSec}s`, x + 34, y - 12);
+        }
+
+        function drawUmiRide() {
+            const x = umiState.x;
+            const y = umiState.y;
+            const wing = Math.sin(umiState.wingPhase) * 4;
+            const phase = umiState.phase;
+            const carrying = phase === 'grab' || phase === 'carrying' || phase === 'landing';
+            ctx.fillStyle = '#f5f5f2'; // white body
+            ctx.fillRect(x + 10, y + 8, 34, 14);
+            ctx.fillStyle = '#111111'; // black back
+            ctx.fillRect(x + 12, y + 8, 24, 5);
+            ctx.fillStyle = '#d9d9d4';
+            ctx.fillRect(x + 40, y + 10, 12, 10); // tail
+            ctx.fillStyle = '#f0c245';
+            ctx.fillRect(x + 2, y + 12, 10, 6); // beak
+            ctx.fillStyle = '#111111'; // black head
+            ctx.fillRect(x + 9, y + 8, 14, 11);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(x + 14, y + 12, 3, 3); // eye ring
+            ctx.fillStyle = '#111111';
+            ctx.fillRect(x + 15, y + 13, 1, 1); // pupil
+
+            // wings
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(x + 16, y + 2 - wing, 14, 8 + Math.abs(wing));
+            ctx.fillRect(x + 20, y + 16, 14, 8 + Math.abs(wing * 0.6));
+
+            // claws holding Melos
+            ctx.fillStyle = '#b07a2d';
+            ctx.fillRect(x + 24, y + 24, 3, 8);
+            ctx.fillRect(x + 30, y + 24, 3, 8);
+
+            if (carrying) {
+                drawMelosStatic(x + 14, y + 30);
+            }
+            const remainSec = Math.max(0, Math.ceil((umiState.timer || 0) / 60));
+            ctx.fillStyle = '#b8ecff';
+            ctx.font = '11px "PixelMplus12", "Press Start 2P", monospace';
+            if (phase === 'incoming') ctx.fillText('ウミガラス 接近中', x - 16, y - 8);
+            else if (phase === 'landing') ctx.fillText('着地中…', x + 2, y - 8);
+            else ctx.fillText(`ウミガラス ${remainSec}s`, x - 2, y - 8);
+        }
+
+        function drawUmiFlyOff() {
+            const x = umiState.flyX;
+            const y = umiState.flyY;
+            const flap = Math.sin(frameCount * 0.55) * 3;
+            ctx.fillStyle = '#f5f5f2';
+            ctx.fillRect(x + 10, y + 8, 30, 12);
+            ctx.fillStyle = '#111111'; // back kept black while leaving
+            ctx.fillRect(x + 11, y + 8, 20, 4);
+            ctx.fillStyle = '#111111'; // head kept black while leaving
+            ctx.fillRect(x + 8, y + 8, 11, 8);
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(x + 14, y + 2 - flap, 12, 7 + Math.abs(flap));
+            ctx.fillStyle = '#f0c245';
+            ctx.fillRect(x + 2, y + 12, 9, 5);
+            if (umiState.ororonTimer > 0) {
+                const text = 'オロロン';
+                ctx.font = '10px "PixelMplus12", "Press Start 2P", monospace';
+                const tw = Math.ceil(ctx.measureText(text).width);
+                ctx.fillStyle = 'rgba(255,255,255,0.92)';
+                ctx.fillRect(x - 2, y - 18, tw + 8, 14);
+                ctx.fillStyle = '#000';
+                ctx.fillText(text, x + 2, y - 7);
+            }
         }
 
         function drawMelosStatic(x, y) {
