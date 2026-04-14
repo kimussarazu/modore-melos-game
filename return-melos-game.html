@@ -1658,8 +1658,8 @@
             return String(text || '')
                 .toLowerCase()
                 .normalize('NFKC')
-                .replace(/\s+/g, '')
-                .replace(/[!！?？.,。・､、\-ー~〜_]/g, '');
+                // 記号挟み回避（例: 勃☆起 / せ*っ*く*す）を潰す
+                .replace(/[^\p{L}\p{N}]+/gu, '');
         }
 
         function containsBlockedWord(name, text) {
@@ -2355,6 +2355,7 @@
                     name: name || '名無しメロス',
                     text
                 });
+                window.alert('不適切な表現が検出されたため、投稿をブロックしました。\nこの試行は管理サーバーに通知されました。');
                 return;
             }
 
